@@ -1,0 +1,51 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for ImportSkillDrawer. */
+export const s = {
+  body: { display: "flex", flexDirection: "column", gap: 16 } satisfies CSSProperties,
+  footer: { display: "flex", justifyContent: "flex-end", gap: 10 } satisfies CSSProperties,
+  fileRow: { display: "flex", gap: 10, alignItems: "center" } satisfies CSSProperties,
+  warnings: {
+    fontSize: 12,
+    color: "var(--warn)",
+    background: "var(--warn-bg)",
+    borderRadius: 6,
+    padding: "8px 10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  } satisfies CSSProperties,
+  langRow: { display: "flex", gap: 6, marginBottom: 4 } satisfies CSSProperties,
+  langPill: (active: boolean): CSSProperties => ({
+    padding: "4px 10px",
+    borderRadius: 99,
+    fontSize: 12,
+    fontWeight: 600,
+    border: "1px solid " + (active ? "var(--accent)" : "var(--border)"),
+    background: active ? "var(--accent-bg)" : "transparent",
+    color: active ? "var(--accent)" : "var(--text-secondary)",
+    cursor: "pointer",
+  }),
+  resultCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "12px 14px",
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    marginBottom: 8,
+  } satisfies CSSProperties,
+  resultHeader: { display: "flex", alignItems: "center", gap: 8 } satisfies CSSProperties,
+  resultName: { fontWeight: 700, fontSize: 13 } satisfies CSSProperties,
+  resultStars: {
+    marginLeft: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 12,
+    color: "var(--warn)",
+  } satisfies CSSProperties,
+  resultDesc: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  resultFooter: { display: "flex", alignItems: "center", gap: 8 } satisfies CSSProperties,
+  resultRepo: { fontSize: 11, color: "var(--text-muted)" } satisfies CSSProperties,
+} as const;

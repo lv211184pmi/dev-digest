@@ -6,6 +6,7 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
 } from './seed-prompts.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -18,11 +19,12 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
+ * with a few findings, the four built-in agents (General + Security +
+ * Performance + Test Quality), all on the default openrouter/deepseek-v4-flash
+ * provider+model, and (L02) four skills linked to them.
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * Course lessons populate the other tables (conventions, memory, eval, …) once
+ * their features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -211,6 +213,17 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description: 'Flags uncovered branches, missing corner cases, and mock overuse in tests.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
   ];
   for (const a of seedAgents) {
     const [existing] = await db
@@ -218,6 +231,91 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- skills (L02) + their agent links ----
+  // uncovered-branch-detector / corner-case-checklist / mock-overuse-guard →
+  // Test Quality Reviewer (a fully new agent). api-contract-breaking-change →
+  // the existing General Reviewer (the control-experiment's second agent).
+  const seedSkills: Array<{ row: typeof t.skills.$inferInsert; agentName: string; order: number }> = [
+    {
+      row: {
+        workspaceId,
+        name: 'uncovered-branch-detector',
+        description:
+          'Flags a changed branch (if/else, switch, try/catch, early return) with no test driving execution down it.',
+        type: 'rubric',
+        source: 'manual',
+        body: '# Uncovered Branch Detector\n\nWhen a diff changes a function with multiple branches (if/else, switch, try/catch, early return), verify the accompanying test diff drives execution down EVERY branch that changed — not just the happy path. Flag any branch (especially an error path or else branch) that has zero test invoking it, citing the exact untested branch by file:line.\n',
+        enabled: true,
+      },
+      agentName: 'Test Quality Reviewer',
+      order: 0,
+    },
+    {
+      row: {
+        workspaceId,
+        name: 'corner-case-checklist',
+        description:
+          'Checks changed functions against a standard corner-case list: empty input, zero/negative, first/last item, at-the-limit values.',
+        type: 'rubric',
+        source: 'manual',
+        body: '# Corner Case Checklist\n\nFor any changed function accepting external input, check whether tests cover: empty input, zero/negative numbers, the empty-collection case, the first/last item of a collection, and exactly-at-the-limit values (pagination, rate limits, string length caps). Flag missing coverage for whichever of these apply to the changed signature.\n',
+        enabled: true,
+      },
+      agentName: 'Test Quality Reviewer',
+      order: 1,
+    },
+    {
+      row: {
+        workspaceId,
+        name: 'mock-overuse-guard',
+        description:
+          'Flags tests that mock so much of the unit under test (or its collaborators) that a real regression could never fail them.',
+        type: 'custom',
+        source: 'manual',
+        body: '# Mock Overuse Guard\n\nFlag a test that mocks the exact unit under test, or mocks so many of its collaborators that the test can only ever verify its own mock was called and can never fail on a real regression. Mocking a pure function or a simple data transform that could just be called for real is also a flag. Real integration points worth mocking: network calls, the LLM provider, the filesystem, wall-clock time — not the function being tested.\n',
+        enabled: true,
+      },
+      agentName: 'Test Quality Reviewer',
+      order: 2,
+    },
+    {
+      row: {
+        workspaceId,
+        name: 'api-contract-breaking-change',
+        description:
+          "Flags a route's request/response shape changing in a way that breaks existing callers without a version bump or migration path.",
+        type: 'convention',
+        source: 'manual',
+        body: "# API Contract Breaking Change\n\nWhen a diff changes a route handler's request or response shape (added/removed/renamed required field, changed status code, changed param/query type, narrowed a previously-optional field to required), flag it as a breaking change for any existing caller unless the diff also bumps a version, adds a migration path, or the route is clearly unreleased. Cite the exact before/after shape from the diff.\n",
+        enabled: true,
+      },
+      agentName: 'General Reviewer',
+      order: 0,
+    },
+  ];
+
+  for (const { row, agentName, order } of seedSkills) {
+    let [skill] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, row.name)));
+    if (!skill) {
+      [skill] = await db.insert(t.skills).values(row).returning();
+      await db.insert(t.skillVersions).values({ skillId: skill!.id, version: 1, body: row.body });
+    }
+
+    const [agent] = await db
+      .select()
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+    if (agent) {
+      await db
+        .insert(t.agentSkills)
+        .values({ agentId: agent.id, skillId: skill!.id, order })
+        .onConflictDoNothing();
+    }
   }
 
   return { workspaceId, userId };

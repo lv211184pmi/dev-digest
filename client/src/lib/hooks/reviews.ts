@@ -119,15 +119,19 @@ export interface RunReviewInput {
   prId: string;
   agentId?: string;
   all?: boolean;
+  /** Control-experiment override: run with no skills, regardless of what's
+   *  linked/enabled on the agent. Does not change the agent's saved config. */
+  skipSkills?: boolean;
 }
 
 export function useRunReview() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ prId, agentId, all }: RunReviewInput) =>
+    mutationFn: ({ prId, agentId, all, skipSkills }: RunReviewInput) =>
       api.post<ReviewRunResponse>(`/pulls/${prId}/review`, {
         ...(agentId ? { agentId } : {}),
         ...(all ? { all } : {}),
+        ...(skipSkills ? { skip_skills: skipSkills } : {}),
       }),
     onSuccess: (_d, { prId }) => {
       qc.invalidateQueries({ queryKey: ["reviews", prId] });

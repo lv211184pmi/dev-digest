@@ -53,7 +53,9 @@
     "running": "Running…",
     "runReview": "Run Review",
     "mergedWarning": "Already merged — review is informational",
-    "mergedTooltip": "This PR is already merged; running a review won’t affect the merged code."
+    "mergedTooltip": "This PR is already merged; running a review won’t affect the merged code.",
+    "withoutSkillsSection": "Run without skills (compare)",
+    "withoutSkillsHint": "control experiment — no skills for this run only"
   },
   "runStatus": {
     "elapsed": "Running · {count} agent(s)",

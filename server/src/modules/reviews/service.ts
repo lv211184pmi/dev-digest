@@ -105,6 +105,7 @@ export class ReviewService {
     prId: string,
     targets: AgentRow[],
     logger?: Logger,
+    skipSkills?: boolean,
   ): Promise<{ runs: { run_id: string; agent_id: string; agent_name: string }[]; reviews: ReviewDto[] }> {
     const pull = await this.repo.getPull(workspaceId, prId);
     if (!pull) throw new NotFoundError('Pull request not found');
@@ -115,7 +116,7 @@ export class ReviewService {
     // the client persists these in global state and subscribes to the SSE
     // stream. The actual (slow) review runs in the background below.
     const runs: { run_id: string; agent_id: string; agent_name: string }[] = [];
-    const jobs: { agent: AgentRow; runId: string }[] = [];
+    const jobs: { agent: AgentRow; runId: string; skipSkills?: boolean }[] = [];
     for (const agent of targets) {
       const runId = await this.repo.createAgentRun({
         workspaceId,
@@ -125,7 +126,7 @@ export class ReviewService {
         model: agent.model,
       });
       runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
-      jobs.push({ agent, runId });
+      jobs.push({ agent, runId, skipSkills });
     }
 
     // Fire-and-forget: the HTTP response returns now with the runIds; reviews

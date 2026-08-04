@@ -51,6 +51,19 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-04** — a feature's CRUD layer having its own `*.it.test.ts` does
+  not mean its runtime *effect* is tested. `test/skills.it.test.ts` covered
+  skill CRUD, versioning, and the `agent_skills` link/reorder round trip
+  thoroughly, but nothing asserted that a linked+enabled skill's body actually
+  reaches `run-executor.ts`'s assembled prompt (`linkedSkills` →
+  `skillBodies` → `assemblePrompt({ skills })`) or that `skip_skills` zeroes
+  it out for one run. That behavior lives in the *reviews* module, not the
+  *skills* module, so the right home for it is `test/reviews.it.test.ts`
+  (added: "a linked, enabled skill is spliced into the prompt…", asserting on
+  `GET /runs/:id/trace` → `prompt_assembly.skills`) — not a new skills test
+  file. When a feature attaches to an existing pipeline via a link table,
+  write the "does it actually change pipeline behavior" test in the pipeline
+  module's test file, not the feature's own.
 - **2026-08-03** — module layering is inconsistent, not absent: `repos`,
   `agents`, `reviews`, `repo-intel` follow `routes.ts` → `service.ts` →
   `repository.ts`, but `pulls`, `polling`, `settings`, `workspace` call

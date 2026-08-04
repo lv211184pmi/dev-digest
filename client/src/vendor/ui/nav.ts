@@ -23,7 +23,28 @@ export const NAV: NavGroup[] = [
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
+    ],
+  },
+  {
+    // Skills (L02) + Agents live together — a skill only matters through the
+    // agents it's attached to. Conventions/Eval Dashboard are later lessons;
+    // their routes are placeholders until then.
+    section: "SKILLS LAB",
+    items: [
+      { key: "skills", label: "Skills", icon: "Sparkles", href: "/skills", gKey: "s" },
       { key: "agents", label: "Agents", icon: "Cpu", href: "/agents", gKey: "a" },
+      { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/conventions" },
+      { key: "eval", label: "Eval Dashboard", icon: "BarChart", href: "/eval" },
+    ],
+  },
+  {
+    // Cross-workspace views owned by later lessons — placeholders for now.
+    section: "GLOBAL",
+    items: [
+      { key: "memory", label: "Memory", icon: "Database", href: "/memory" },
+      { key: "multi-agent", label: "Multi-Agent Review", icon: "Workflow", href: "/multi-agent" },
+      { key: "agent-performance", label: "Agent Performance", icon: "TrendingUp", href: "/agent-performance" },
+      { key: "ci-runs", label: "CI Runs", icon: "GitCommit", href: "/ci-runs" },
     ],
   },
 ];
@@ -52,6 +73,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "⌘K", label: "Open command palette", group: "Global" },
   { keys: "?", label: "Show keyboard shortcuts", group: "Global" },
   { keys: "g p", label: "Go to Pull Requests", group: "Navigation" },
+  { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },

@@ -19,6 +19,10 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  // A FormData body (file upload) must let the browser set its own
+  // multipart/form-data content-type (with boundary) — forcing json here
+  // would break the upload.
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -27,7 +31,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
         // Only declare a JSON body when one is actually sent — otherwise a
         // body-less POST/PUT (e.g. tour generate, refresh, reindex) trips
         // Fastify's "Body cannot be empty when content-type is application/json".
-        ...(init?.body != null ? { "content-type": "application/json" } : {}),
+        ...(init?.body != null && !isFormData ? { "content-type": "application/json" } : {}),
         ...(init?.headers ?? {}),
       },
     });
@@ -71,4 +75,7 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     apiFetch<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
+  /** POST a FormData body (file upload) — used by the skill-archive import preview. */
+  upload: <T>(path: string, formData: FormData) =>
+    apiFetch<T>(path, { method: "POST", body: formData }),
 };

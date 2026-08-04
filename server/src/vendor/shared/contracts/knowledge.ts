@@ -131,6 +131,18 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+// The immutable snapshot captured in `skill_versions` whenever a skill's body
+// or metadata changes. `change_summary` is an optional short "what changed"
+// note the user can attach when saving (shown in the Versions tab).
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  change_summary: z.string().nullish(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),

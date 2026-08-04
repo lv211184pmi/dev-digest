@@ -269,6 +269,10 @@ export type IndexStatus = z.infer<typeof IndexStatus>;
 export const RunRequest = z.object({
   agentId: z.string().optional(),
   all: z.boolean().optional(),
+  // Control-experiment override: run with no skills attached to the prompt
+  // regardless of what's linked/enabled on the agent. Does not change the
+  // agent's persisted config — scoped to this one run only.
+  skip_skills: z.boolean().optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;
 

@@ -299,4 +299,79 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(body.runs.length).toBeGreaterThanOrEqual(2);
     await app.close();
   });
+
+  it('a linked, enabled skill is spliced into the prompt; a disabled one and skip_skills are not (L02)', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const enabledSkill = (
+      await app.inject({
+        method: 'POST',
+        url: '/skills',
+        payload: {
+          name: 'no-then-chains',
+          type: 'convention',
+          body: 'SKILL-MARKER: prefer async/await over .then() chains.',
+        },
+      })
+    ).json();
+    const disabledSkill = (
+      await app.inject({
+        method: 'POST',
+        url: '/skills',
+        payload: {
+          name: 'unvetted-import',
+          type: 'security',
+          body: 'SKILL-MARKER-DISABLED: should never reach the prompt.',
+          source: 'community',
+          enabled: false,
+        },
+      })
+    ).json();
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'Skill Prompt Agent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({
+      method: 'POST',
+      url: `/agents/${agent.id}/skills`,
+      payload: { skill_ids: [enabledSkill.id, disabledSkill.id] },
+    });
+
+    // normal run: the enabled skill's body reaches the prompt, the disabled one doesn't
+    const run = (
+      await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { agentId: agent.id },
+      })
+    ).json();
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+    const trace = (
+      await app.inject({ method: 'GET', url: `/runs/${run.runs[0].run_id}/trace` })
+    ).json();
+    expect(trace.prompt_assembly.skills).toContain('SKILL-MARKER:');
+    expect(trace.prompt_assembly.skills).not.toContain('SKILL-MARKER-DISABLED');
+    expect(trace.prompt_assembly.user).toContain('## Skills / rules');
+
+    // skip_skills: the same agent, same links, but this one run gets none
+    const skipped = (
+      await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { agentId: agent.id, skip_skills: true },
+      })
+    ).json();
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 2 });
+    const skippedTrace = (
+      await app.inject({ method: 'GET', url: `/runs/${skipped.runs[0].run_id}/trace` })
+    ).json();
+    expect(skippedTrace.prompt_assembly.skills).toBeNull();
+    expect(skippedTrace.prompt_assembly.user).not.toContain('## Skills / rules');
+
+    await app.close();
+  });
 });

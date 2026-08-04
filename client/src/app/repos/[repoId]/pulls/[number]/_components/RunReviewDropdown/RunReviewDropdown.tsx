@@ -38,7 +38,7 @@ export function RunReviewDropdown({
   const all = agents ?? [];
   const hasEnabled = all.some((a) => a.enabled);
 
-  const kick = async (opts: { all?: boolean; agentId?: string }) => {
+  const kick = async (opts: { all?: boolean; agentId?: string; skipSkills?: boolean }) => {
     onRunStart?.();
     try {
       const res = await run.mutateAsync({ prId, ...opts });
@@ -60,6 +60,17 @@ export function RunReviewDropdown({
       }))
     : [{ label: "No agents yet — create one", icon: "Plus", muted: true, onClick: () => router.push("/agents") }];
 
+  // Control-experiment override (L02): the same agents, but for ONE run with
+  // no skills attached — regardless of what's linked/enabled on the agent's
+  // saved config. Lets you compare two traces (with/without the skills block)
+  // without touching the agent itself.
+  const withoutSkillsItems: DropdownItemDef[] = all.map((a) => ({
+    label: a.name,
+    icon: "Cpu" as const,
+    hint: a.model,
+    onClick: () => kick({ agentId: a.id, skipSkills: true }),
+  }));
+
   const items: DropdownItemDef[] = [
     // Merged/closed PRs can still be reviewed (informational only); lead with a
     // muted, non-actionable warning so the intent is clear.
@@ -77,6 +88,13 @@ export function RunReviewDropdown({
     },
     { divider: true },
     ...agentItems,
+    ...(all.length > 0
+      ? [
+          { divider: true } as DropdownItemDef,
+          { label: t("runReview.withoutSkillsSection"), icon: "Sparkles" as const, muted: true },
+          ...withoutSkillsItems,
+        ]
+      : []),
     { divider: true },
     { label: t("runReview.configureAgents"), icon: "Settings", muted: true, onClick: () => router.push("/agents") },
   ];

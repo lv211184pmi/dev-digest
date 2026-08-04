@@ -16,6 +16,30 @@ move it into `docs/` and delete it here.
 
 ## Decisions
 
+### 2026-08-04 — Skills reach the prompt un-delimited; the `enabled` toggle is the trust gate, not `wrapUntrusted()`
+
+**What:** `reviewer-core/src/prompt.ts` wraps every other external input
+(diff, PR description, repo map, callers, specs) in `wrapUntrusted()` +
+`INJECTION_GUARD`, but `parts.skills` is joined straight into the `## Skills /
+rules` section with no delimiter. This is intentional, not an oversight: a
+skill only ever reaches the prompt if `run-executor.ts` finds it both linked
+*and* `enabled`, and `source: 'imported_url' | 'extracted' | 'community'`
+skills are always created with `enabled: false`
+(`server/src/modules/skills/service.ts` `importCommunity`,
+`ImportSkillDrawer.tsx` `importFile`) — a human has to read the body and flip
+the toggle before it can ever be sent. A `source: 'manual'` skill is trusted
+like the agent's own system prompt, which also isn't delimited.
+**Why:** the enable toggle already forces a human vetting step for every
+non-manual source; delimiter-wrapping on top would be defense-in-depth for a
+threat (an admin enabling a skill body they never read) the UI's own copy
+("must be vetted before it is enabled") already tells the user not to do.
+**Rejected:** none — this was not revisited, only verified. Flag it if a
+future change ever lets `enabled` default to `true` for an imported source, or
+lets `POST /skills` set `enabled: true` with a non-manual `source` without a
+review step — at that point the un-delimited prompt path becomes a real
+injection vector and `wrapUntrusted()` should be applied to `skillsBlock` in
+`reviewer-core/src/prompt.ts:88`.
+
 ### 2026-08-02 — AGENTS.md is the source of truth; CLAUDE.md is a symlink to it
 
 **What:** every package's `CLAUDE.md` (root, `client/`, `e2e/`,
@@ -109,6 +133,14 @@ _None yet._
   request. `reviewer-core/src/review/run.ts:216`
 
 ## Tool & Library Notes
+
+- **2026-08-03** — `git diff` and `git diff --cached` never show untracked
+  files — only tracked-file changes. Any tool that needs "all local changes
+  not yet merged" (e.g. a pre-PR review gate) must also union in
+  `git status --porcelain --untracked-files=all` (the `??` lines), or
+  brand-new files are silently invisible. Confirmed by dogfooding
+  `.claude/skills/pr-self-review/SKILL.md` on itself: its own new SKILL.md
+  file was untracked and did not show up until this check was added.
 
 - **2026-08-03** — In this environment's shell (zsh), an unquoted variable
   holding multi-line `grep -l` output does **not** word-split in a `for f in

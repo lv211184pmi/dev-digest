@@ -1,11 +1,19 @@
 {
+  "card": {
+    "noDescription": "No description"
+  },
   "page": {
     "crumbLab": "Skills Lab",
     "crumbSkills": "Skills",
     "heading": "Skills",
+    "subtitle": "Reusable review rules attached to agents. Each = a type, a description, and a Markdown body.",
     "addSkill": "Add Skill",
+    "createFromScratch": "Create from scratch",
+    "importFromFile": "Import from file",
+    "searchCommunity": "Search community skills…",
     "searchPlaceholder": "Search skills…",
     "loadError": "Could not load skills.",
+    "creating": "Creating…",
     "menu": {
       "fromFile": "Import from file",
       "fromUrl": "Import from URL",
@@ -15,19 +23,24 @@
       "title": "No skills yet",
       "body": "Import a skill from a file, a URL, or the community catalog.",
       "cta": "Import from file"
-    },
-    "selectPrompt": {
-      "title": "Select a skill",
-      "body": "Pick a skill on the left to preview its body."
     }
   },
   "detail": {
     "crumbSkill": "Skill",
     "back": "← All skills",
     "loadError": "Could not load this skill.",
+    "runOnEvals": "Run on evals",
+    "disabled": "disabled",
     "notFound": {
       "title": "Skill not found",
       "body": "It may have been deleted."
+    },
+    "tabs": {
+      "config": "Config",
+      "preview": "Preview",
+      "evals": "Evals",
+      "stats": "Stats",
+      "versions": "Versions"
     }
   },
   "drawer": {
@@ -69,7 +82,8 @@
       "body": "Try a different search term."
     },
     "importing": "Importing…",
-    "import": "Import"
+    "import": "Import",
+    "success": "Imported \"{name}\". Disabled until you vet + enable it."
   },
   "listItem": {
     "needsVetting": "needs vetting",
@@ -85,17 +99,47 @@
       "extracted": "Extracted",
       "community": "Community",
       "imported_url": "Imported"
-    }
+    },
+    "agentCount": "{count, plural, one {# agent} other {# agents}}"
   },
   "preview": {
     "untrustedBadge": "untrusted source",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved (v{version})",
     "edit": "Edit",
     "untrustedNotice": "This skill came from an untrusted source. Its body is stored as data (delimiter-wrapped) and must be vetted before it is enabled for an agent.",
+    "nameLabel": "Name",
+    "descriptionLabel": "Description",
+    "descriptionHint": "This is the skill's interface — write it as a direct instruction to the reviewing agent (\"Flag X when Y\"), not a summary of what it does.",
+    "typeLabel": "Type",
     "bodyLabel": "Skill body (Markdown)",
     "bodyHint": "Saving a changed body creates a new immutable version.",
-    "version": "v{version}"
+    "changeSummaryLabel": "What changed? (optional)",
+    "changeSummaryPlaceholder": "e.g. Tightened scope rule",
+    "version": "v{version}",
+    "tokenCount": "{count} tokens (approx.)"
+  },
+  "evals": {
+    "body": "Skill-level eval runs land in a later lesson. For now, attach this skill to an agent and run it on a real PR to see its effect."
+  },
+  "stats": {
+    "usedBy": "Used by",
+    "noAgents": "Not linked to any agent yet.",
+    "agentsUsingSkill": "Agents using this skill"
+  },
+  "versions": {
+    "title": "Version history",
+    "count": "{count, plural, one {# version} other {# versions}}",
+    "current": "Current",
+    "diff": "Diff",
+    "restore": "Restore",
+    "restoring": "Restoring…",
+    "restored": "Restored v{version} as the new current version.",
+    "hideDiff": "Hide diff",
+    "empty": "No version history yet.",
+    "initial": "Initial version"
   }
 }

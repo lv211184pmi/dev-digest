@@ -6,7 +6,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import { Icon, Badge, Toggle } from "@devdigest/ui";
 import type { Agent } from "@devdigest/shared";
-import { useDeleteAgent } from "@/lib/hooks/agents";
+import { useAgentSkills, useDeleteAgent } from "@/lib/hooks/agents";
 import { modelColor } from "./helpers";
 import { s } from "./styles";
 
@@ -19,12 +19,15 @@ export function AgentCard({
 }: {
   ag: Agent;
   active?: boolean;
+  /** Override for tests/precomputed counts; otherwise fetched via /agents/:id/skills. */
   skillCount?: number;
   onClick?: () => void;
   onToggle?: (enabled: boolean) => void;
 }) {
   const t = useTranslations("agents");
   const del = useDeleteAgent();
+  const { data: links } = useAgentSkills(skillCount == null ? ag.id : undefined);
+  const effectiveSkillCount = skillCount ?? links?.length;
   const color = modelColor(ag.model);
   return (
     <div onClick={onClick} style={s.card(!!active, ag.enabled)}>
@@ -63,9 +66,9 @@ export function AgentCard({
         <span className="mono" style={s.modelChip(color)}>
           {ag.model}
         </span>
-        {skillCount != null && (
+        {effectiveSkillCount != null && (
           <Badge color="var(--text-secondary)" icon="Sparkles">
-            {t("card.skillCount", { count: skillCount })}
+            {t("card.skillCount", { count: effectiveSkillCount })}
           </Badge>
         )}
       </div>

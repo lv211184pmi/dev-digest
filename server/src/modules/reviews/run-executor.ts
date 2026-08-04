@@ -56,7 +56,7 @@ export class ReviewRunExecutor {
     workspaceId: string,
     pull: PullRow,
     repo: typeof schema.repos.$inferSelect,
-    jobs: { agent: AgentRow; runId: string }[],
+    jobs: { agent: AgentRow; runId: string; skipSkills?: boolean }[],
     logger?: Logger,
   ): Promise<void> {
     // ONE logger fanned out over every queued run: shared pre-work (diff +
@@ -104,14 +104,14 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
-    for (const { agent, runId } of jobs) {
+    for (const { agent, runId, skipSkills } of jobs) {
       const agentStart = Date.now();
       logger?.info(
         { runId, agent: agent.name, provider: agent.provider, model: agent.model, prId: pull.id },
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, skipSkills);
         logger?.info(
           {
             runId,
@@ -143,6 +143,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    skipSkills?: boolean,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -183,6 +184,20 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // Skills (L02) — the agent's linked, enabled skills, in link order.
+      // `skipSkills` is the control-experiment override (RunRequest.skip_skills):
+      // a one-off "run without skills" for THIS run only, independent of what's
+      // linked/enabled on the agent's persisted config.
+      const linkedSkills = skipSkills ? [] : await this.agents.linkedSkills(agent.id);
+      const skillBodies = linkedSkills.filter((l) => l.skill.enabled).map((l) => l.skill.body);
+      runLog.info(
+        skipSkills
+          ? 'Skills explicitly skipped for this run (control experiment)'
+          : skillBodies.length > 0
+            ? `Skills: ${skillBodies.length} linked skill(s) attached to the prompt`
+            : 'Skills: no enabled skills linked to this agent',
+      );
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -200,6 +215,9 @@ export class ReviewRunExecutor {
         ...(callersDigest ? { callers: callersDigest } : {}),
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
+        // Skills (L02) — omitted (assemblePrompt leaves the section out) when
+        // there are none linked/enabled, or when skipped for this run.
+        ...(skillBodies.length > 0 ? { skills: skillBodies } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),

@@ -39,6 +39,7 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
       req.params.id,
       targets,
       req.log,
+      body.skip_skills,
     );
     return { pr_id: req.params.id, runs, reviews };
   });

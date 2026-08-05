@@ -153,15 +153,112 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+export const ConventionCategory = z.enum([
+  'naming',
+  'structure',
+  'error_handling',
+  'testing',
+  'typing',
+  'imports',
+  'logging',
+  'api_design',
+  'other',
+]);
+export type ConventionCategory = z.infer<typeof ConventionCategory>;
+
+export const ConventionRunStatus = z.enum(['queued', 'running', 'done', 'failed']);
+export type ConventionRunStatus = z.infer<typeof ConventionRunStatus>;
+
 export const ConventionCandidate = z.object({
   id: z.string(),
+  run_id: z.string(),
+  category: ConventionCategory,
   rule: z.string(),
   evidence_path: z.string(),
   evidence_snippet: z.string(),
+  evidence_start_line: z.number().int().nullish(),
+  evidence_end_line: z.number().int().nullish(),
   confidence: z.number().min(0).max(1),
   accepted: z.boolean(),
+  created_at: z.string(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+export const ConventionRun = z.object({
+  id: z.string(),
+  repo_id: z.string(),
+  status: ConventionRunStatus,
+  sample_count: z.number().int(),
+  candidate_count: z.number().int(),
+  dropped_count: z.number().int(),
+  provider: z.string().nullish(),
+  model: z.string().nullish(),
+  tokens_in: z.number().int().nullish(),
+  tokens_out: z.number().int().nullish(),
+  cost_usd: z.number().nullish(),
+  skill_id: z.string().nullish(),
+  error: z.string().nullish(),
+  created_at: z.string(),
+  finished_at: z.string().nullish(),
+});
+export type ConventionRun = z.infer<typeof ConventionRun>;
+
+/** GET /repos/:id/conventions — `run` is null before the first-ever scan. */
+export const ConventionsView = z.object({
+  run: ConventionRun.nullable(),
+  candidates: z.array(ConventionCandidate),
+});
+export type ConventionsView = z.infer<typeof ConventionsView>;
+
+export const ExtractConventionsAccepted = z.object({
+  status: z.literal('accepted'),
+  run_id: z.string(),
+  job_id: z.string().nullable(),
+});
+export type ExtractConventionsAccepted = z.infer<typeof ExtractConventionsAccepted>;
+
+export const UpdateConventionBody = z.object({
+  rule: z.string().min(1).optional(),
+  category: ConventionCategory.optional(),
+  accepted: z.boolean().optional(),
+});
+export type UpdateConventionBody = z.infer<typeof UpdateConventionBody>;
+
+/** `ids` omitted = apply `accepted` to every candidate in the run. */
+export const ConventionDecisionsBody = z.object({
+  accepted: z.boolean(),
+  ids: z.array(z.string()).optional(),
+});
+export type ConventionDecisionsBody = z.infer<typeof ConventionDecisionsBody>;
+
+export const ConventionDecisionsResult = z.object({
+  updated: z.number().int(),
+});
+export type ConventionDecisionsResult = z.infer<typeof ConventionDecisionsResult>;
+
+// The server-rendered markdown draft for a run's accepted candidates —
+// GET returns this; the client edits it locally and POSTs the (possibly
+// edited) fields back via CreateConventionSkillBody.
+export const ConventionSkillDraft = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  enabled: z.boolean(),
+  body: z.string(),
+  evidence_files: z.array(z.string()),
+  source_count: z.number().int(),
+  repo_name: z.string(),
+});
+export type ConventionSkillDraft = z.infer<typeof ConventionSkillDraft>;
+
+export const CreateConventionSkillBody = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  type: SkillType,
+  enabled: z.boolean(),
+  body: z.string().min(1),
+});
+export type CreateConventionSkillBody = z.infer<typeof CreateConventionSkillBody>;
 
 // ---- Agents ----
 export const Provider = z.enum(['openai', 'anthropic', 'openrouter']);

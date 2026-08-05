@@ -1,5 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm';
-import type { Db } from '../../db/client.js';
+import type { Db, Tx } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { SkillSource, SkillType } from '@devdigest/shared';
 import { INITIAL_SKILL_VERSION } from './constants.js';
@@ -60,9 +60,15 @@ export class SkillsRepository {
     return rows.length > 0;
   }
 
-  /** Insert a skill AND record version 1 in skill_versions (immutable snapshot). */
-  async insert(values: InsertSkill): Promise<SkillRow> {
-    const [row] = await this.db
+  /**
+   * Insert a skill AND record version 1 in skill_versions (immutable snapshot).
+   * `tx` lets a caller (e.g. the conventions module's skill-creation use case)
+   * compose this into its own `db.transaction(...)` unit of work; falls back
+   * to the plain connection when absent.
+   */
+  async insert(values: InsertSkill, tx?: Db | Tx): Promise<SkillRow> {
+    const conn = tx ?? this.db;
+    const [row] = await conn
       .insert(t.skills)
       .values({
         workspaceId: values.workspaceId,
@@ -76,7 +82,7 @@ export class SkillsRepository {
         evidenceFiles: values.evidenceFiles ?? null,
       })
       .returning();
-    await this.snapshotVersion(row!, INITIAL_SKILL_VERSION, null);
+    await this.snapshotVersion(row!, INITIAL_SKILL_VERSION, null, tx);
     return row!;
   }
 
@@ -113,8 +119,10 @@ export class SkillsRepository {
     row: SkillRow,
     version: number,
     changeSummary: string | null,
+    tx?: Db | Tx,
   ): Promise<void> {
-    await this.db
+    const conn = tx ?? this.db;
+    await conn
       .insert(t.skillVersions)
       .values({ skillId: row.id, version, body: row.body, changeSummary })
       .onConflictDoNothing();

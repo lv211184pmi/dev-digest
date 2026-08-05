@@ -217,7 +217,12 @@ export class RepoIntelService implements RepoIntel {
    * every caller gets `rank: 0` and HTTP impact is detected by re-reading the
    * clone (not the index). T2 promotes this path to the persistent layer.
    */
-  async getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult> {
+  // BREAKING: Now requires includeTests parameter
+  async getBlastRadius(
+    repoId: string, 
+    changedFiles: string[], 
+    includeTests: boolean
+  ): Promise<BlastResult> {
     // T3: serve from the persistent index when it's built. Falls through to the
     // ripgrep best-effort below when the flag is off / index is absent.
     if (this.container.config.repoIntelEnabled && changedFiles.length > 0) {
@@ -395,7 +400,11 @@ export class RepoIntelService implements RepoIntel {
    * rendered by the pipeline at `DEFAULT_REPO_MAP_TOKEN_BUDGET`; other budgets
    * (or an unindexed / partial-without-rank repo) miss and degrade cleanly.
    */
-  async getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult> {
+  // BREAKING: Changed return type - now returns object with metadata
+  async getRepoMap(repoId: string, tokenBudget?: number): Promise<{
+    result: RepoMapResult;
+    generatedAt: Date;
+  }> {
     const degraded: RepoMapResult = {
       text: '',
       tokens: 0,
@@ -404,14 +413,21 @@ export class RepoIntelService implements RepoIntel {
       reason: 'no_data',
     };
     if (!this.container.config.repoIntelEnabled) {
-      return { ...degraded, reason: 'flag_off' };
+      return { result: { ...degraded, reason: 'flag_off' }, generatedAt: new Date() };
     }
     const state = await this.repo.tryGetIndexState(repoId);
-    if (!state || !state.lastIndexedSha) return degraded;
+    if (!state || !state.lastIndexedSha) {
+      return { result: degraded, generatedAt: new Date() };
+    }
     const budget = tokenBudget ?? DEFAULT_REPO_MAP_TOKEN_BUDGET;
     const hit = await this.repo.getRepoMapCache(repoId, state.lastIndexedSha, budget);
-    if (!hit) return degraded;
-    return { text: hit.mapText, tokens: hit.tokenCount, cached: true };
+    if (!hit) {
+      return { result: degraded, generatedAt: new Date() };
+    }
+    return { 
+      result: { text: hit.mapText, tokens: hit.tokenCount, cached: true },
+      generatedAt: new Date()
+    };
   }
 
   /** Percentile per path from `file_rank` (smart-diff / run-executor "top-N%"). */
@@ -563,73 +579,8 @@ export class RepoIntelService implements RepoIntel {
     return out;
   }
 
-  /**
-   * T1.3 — diff-scoped phantom-API gate fuel.
-   *
-   * For each changed file: collect bare invocation heads (astgrep
-   * parseInvocationHeads). A head is PHANTOM iff it is NOT declared in this
-   * file, NOT imported in this file, NOT a JS/TS keyword, and NOT a known
-   * runtime/builtin global. `declFile` is intentionally `null` in T1 — Tier 1
-   * is ephemeral (no persistent decl_file column; that lands in T2).
-   *
-   * Degraded gate: flag off, missing clone, or no parseable files → `[]`.
-   * NEVER throws — per-file parse errors are swallowed.
-   */
-  async getUnresolvedReferences(repoId: string, files: string[]): Promise<RefRow[]> {
-    if (!this.container.config.repoIntelEnabled) return [];
-    if (files.length === 0) return [];
-
-    const repo = await this.repo.getRepoBasics(repoId);
-    if (!repo || !repo.clonePath) return [];
-
-    const out: RefRow[] = [];
-
-    for (const file of files) {
-      const ext = extname(file).toLowerCase();
-      if (!(SUPPORTED_EXT as readonly string[]).includes(ext)) continue;
-
-      const source = await readClone(repo.clonePath, file);
-      if (source == null) continue;
-
-      let declared: ReturnType<typeof parseSymbols>;
-      let imports: ReturnType<typeof parseImports>;
-      let heads: ReturnType<typeof parseInvocationHeads>;
-      try {
-        declared = parseSymbols(file, source);
-        imports = parseImports(file, source);
-        heads = parseInvocationHeads(file, source);
-      } catch {
-        // Tree-sitter is lenient but a napi-level failure shouldn't blow up
-        // the whole gate. Skip the file (= "no phantoms here" — conservative).
-        continue;
-      }
-
-      // Build the "declared-or-imported" name set. parseSymbols already emits
-      // both qualified (`Class.method`) and bare (`method`) forms, so a method
-      // declared anywhere in the file is resolvable as the bare invocation.
-      const knownNames = new Set<string>();
-      for (const s of declared) knownNames.add(s.name);
-      for (const i of imports) knownNames.add(i.name);
-
-      for (const head of heads) {
-        if (knownNames.has(head.name)) continue;
-        if (PHANTOM_GLOBALS_ALLOWLIST.has(head.name)) continue;
-        out.push({
-          refFile: file,
-          refLine: head.line,
-          symbolName: head.name,
-          declFile: null, // T1: ephemeral
-        });
-      }
-    }
-
-    return out;
-  }
-
-  /** Top-N files by rank, minus tests/configs/migrations — conventions sample. */
-  async getConventionSamples(repoId: string, n: number): Promise<string[]> {
-    return this.getTopFilesByRank(repoId, n);
-  }
+  // BREAKING: getUnresolvedReferences has been removed - use getSymbolsInFiles instead
+  // BREAKING: getConventionSamples has been removed - use getTopFilesByRank instead
 
   /**
    * Top-N file paths by rank DESC, dropping tests/configs/migrations and any

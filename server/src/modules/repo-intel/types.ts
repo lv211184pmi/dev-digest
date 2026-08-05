@@ -144,8 +144,17 @@ export interface RepoIntel {
   getIndexState(repoId: string): Promise<IndexState>;
 
   // --- Reads --------------------------------------------------------------
-  getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
-  getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
+  // BREAKING: Now requires includeTests parameter
+  getBlastRadius(
+    repoId: string, 
+    changedFiles: string[], 
+    includeTests: boolean
+  ): Promise<BlastResult>;
+  // BREAKING: Changed return type - now returns object with metadata
+  getRepoMap(repoId: string, tokenBudget?: number): Promise<{
+    result: RepoMapResult;
+    generatedAt: Date;
+  }>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;
   getCallerSignatures(
@@ -153,14 +162,8 @@ export interface RepoIntel {
     changedFiles: string[],
     limit?: number,
   ): Promise<SignatureRow[]>;
-  /**
-   * Unresolved references (= Phantom-gate fuel).
-   * T1: diff-scoped, ephemeral (no persistent decl_file).
-   * T2/T3: persistent `references.decl_file IS NULL`.
-   */
-  getUnresolvedReferences(repoId: string, files: string[]): Promise<RefRow[]>;
-  /** Top-N file paths by rank, filtered of tests/configs. */
-  getConventionSamples(repoId: string, n: number): Promise<string[]>;
+  // BREAKING: getUnresolvedReferences has been removed - use getSymbolsInFiles instead
+  // BREAKING: getConventionSamples has been removed - use getTopFilesByRank instead
 
   // --- T3: onboarding reading-path + critical paths (graph required) ------
   getTopFilesByRank(

@@ -3,17 +3,26 @@
 "use client";
 
 import React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, API_BASE } from "../api";
 import { notify } from "../toast";
 import type {
   FindingActionKind,
+  PrIntentRecord,
   PrReviewComment,
   ReviewRecord,
   ReviewRunResponse,
   RunEvent,
   RunSummary,
+  SmartDiff,
 } from "@devdigest/shared";
+
+/** Findings and Smart Diff's per-file pin ordering are derived from the same
+   reviews, so anything that changes one must invalidate both together. */
+export function invalidateReviewsAndSmartDiff(qc: QueryClient, prId: string | null | undefined) {
+  qc.invalidateQueries({ queryKey: ["reviews", prId] });
+  qc.invalidateQueries({ queryKey: ["smart-diff", prId] });
+}
 
 // ---- Active (in-flight) runs — server-side source of truth ----
 export interface ActiveRun {
@@ -56,6 +65,46 @@ export function usePrReviews(prId: string | null | undefined) {
   });
 }
 
+// ---- Smart Diff (deterministic, review-risk-ordered "Files changed") ----
+/**
+ * The PR's Smart Diff — files grouped core/wiring/boilerplate with findings
+ * pinned to the top of their group. A missing PR is a 404 — a normal empty
+ * state, not an error: `retry: false` keeps it from being re-requested twice
+ * on every mount, matching `usePrIntent`.
+ */
+export function useSmartDiff(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["smart-diff", prId],
+    queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
+    enabled: !!prId,
+    retry: false,
+  });
+}
+
+// ---- Derived PR intent ----
+/**
+ * The PR's derived intent. A missing intent is a 404 — a normal empty state,
+ * not an error: the global QueryCache only toasts network/5xx, and `retry: false`
+ * keeps a "never derived yet" PR from being re-requested twice on every mount.
+ */
+export function usePrIntent(prId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["pr-intent", prId],
+    queryFn: () => api.get<PrIntentRecord>(`/pulls/${prId}/intent`),
+    enabled: !!prId,
+    retry: false,
+  });
+}
+
+/** Force a fresh derivation (spends money server-side); refreshes the card. */
+export function useDeriveIntent(prId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<PrIntentRecord>(`/pulls/${prId}/intent`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pr-intent", prId] }),
+  });
+}
+
 /** Delete one run from the PR's run history (+ its trace). */
 export function useDeleteRun(prId: string | null | undefined) {
   const qc = useQueryClient();
@@ -65,7 +114,7 @@ export function useDeleteRun(prId: string | null | undefined) {
     // both the timeline and the Review Runs list from cache.
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pr-runs", prId] });
-      qc.invalidateQueries({ queryKey: ["reviews", prId] });
+      invalidateReviewsAndSmartDiff(qc, prId);
     },
   });
 }
@@ -82,7 +131,7 @@ export function useDeleteReview(prId: string | null | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (reviewId: string) => api.del<{ ok: boolean }>(`/reviews/${reviewId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["reviews", prId] }),
+    onSuccess: () => invalidateReviewsAndSmartDiff(qc, prId),
   });
 }
 
@@ -159,7 +208,7 @@ export function useFindingAction() {
         reply ? { reply } : undefined,
       ),
     onSuccess: (_d, { prId }) => {
-      if (prId) qc.invalidateQueries({ queryKey: ["reviews", prId] });
+      if (prId) invalidateReviewsAndSmartDiff(qc, prId);
     },
   });
 }

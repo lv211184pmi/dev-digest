@@ -51,7 +51,16 @@ was intentional.
 
 ## What Works
 
-_None yet._
+- **2026-08-10** — building `SmartDiffViewer`'s `SmartFileCard`/`SmartCodeLine`
+  as two new ~60-line components sharing `diff-viewer`'s `styles.ts` was
+  cheaper than reusing `FileCard`/`CodeLine`. Those two are tightly coupled to
+  the inline-comments API (thread partitioning, hover/composer state); adding
+  optional `findingsByLine`/`target`/`forceOpen` props for one caller would
+  have dragged the comment path into re-renders it doesn't need. Reuse the
+  presentation (`parsePatch`, `Line`, `chevronFor`/`lineRowFor`/`lineSignFor`,
+  the shared `diffStyles`) via a widened barrel; write new components when the
+  interaction model actually differs.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/SmartDiffViewer/_components/SmartFileCard/SmartFileCard.tsx`
 
 ## What Doesn't Work
 
@@ -91,7 +100,12 @@ _None yet._
 
 ## Tool & Library Notes
 
-_None yet._
+- **2026-08-10** — `@testing-library/user-event` is not a `client/`
+  dependency. Every interaction test in this package, including new
+  `SmartDiffViewer.test.tsx`/`DiffTab.test.tsx`, uses `fireEvent` from
+  `@testing-library/react` (see `RunHistory.test.tsx` for the prior
+  precedent). Reaching for `userEvent` fails module resolution — add the
+  dependency first, or use `fireEvent`.
 
 ## Recurring Errors & Fixes
 

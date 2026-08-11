@@ -3,7 +3,8 @@
  * their arguments — no DB / network / `this`).
  */
 import type { Finding } from '@devdigest/shared';
-import type { FindingRow, PullRow, ReviewRow } from './repository.js';
+import type { FindingRow, PullRow, ReviewRepository, ReviewRow } from './repository.js';
+import type { SmartDiffInputFile, SmartDiffInputFinding } from './smart-diff/index.js';
 
 // reduceReviews + sliceDiff live in @devdigest/reviewer-core (pure engine logic
 // shared with the CI runner); re-exported here for backward-compatible imports.
@@ -44,11 +45,49 @@ export function findingRowToDto(row: FindingRow): ReviewDtoFinding {
     suggestion: row.suggestion ?? null,
     confidence: row.confidence,
     kind: (row.kind as Finding['kind']) ?? 'finding',
+    scope: (row.scope as Finding['scope']) ?? null,
     trifecta_components: (row.trifectaComponents as Finding['trifecta_components']) ?? null,
     evidence: null,
     review_id: row.reviewId,
     accepted_at: row.acceptedAt?.toISOString() ?? null,
     dismissed_at: row.dismissedAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * A `pr_files` row, as selected by `ReviewRepository.getPrFiles`. Derived
+ * from the repository's own return type rather than importing `db/schema.js`
+ * directly — helpers.ts stays row-free at the schema level, matching how
+ * `FindingRow`/`PullRow` above are sourced from `./repository.js`.
+ */
+export type PrFileRow = Awaited<ReturnType<ReviewRepository['getPrFiles']>>[number];
+
+/**
+ * `pr_files` row → Smart Diff's domain-shaped file input. Lives here so
+ * `smart-diff/*` stays completely row-free (an onion rule: row types must
+ * not appear in a domain-service).
+ */
+export function prFileRowToSmartDiffFile(row: PrFileRow): SmartDiffInputFile {
+  return {
+    path: row.path,
+    additions: row.additions,
+    deletions: row.deletions,
+  };
+}
+
+/**
+ * `findings` row → Smart Diff's domain-shaped finding input. `dismissed`
+ * mirrors `rollupSeverities`'s rule: `dismissedAt !== null` means "handled",
+ * regardless of whether the finding was ever accepted.
+ */
+export function findingRowToSmartDiffFinding(row: FindingRow): SmartDiffInputFinding {
+  return {
+    id: row.id,
+    file: row.file,
+    severity: row.severity as Finding['severity'],
+    startLine: row.startLine,
+    endLine: row.endLine,
+    dismissed: row.dismissedAt !== null,
   };
 }
 

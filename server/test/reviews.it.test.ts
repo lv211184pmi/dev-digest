@@ -7,7 +7,7 @@ import { seed } from '../src/db/seed.js';
 import { MockLLMProvider, MockEmbedder, MockGitClient } from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
-import type { Review } from '@devdigest/shared';
+import { SmartDiff, type Review } from '@devdigest/shared';
 
 const hasDocker = await dockerAvailable();
 const d = hasDocker ? describe : describe.skip;
@@ -373,5 +373,164 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(skippedTrace.prompt_assembly.user).not.toContain('## Skills / rules');
 
     await app.close();
+  });
+
+  describe('GET /pulls/:id/smart-diff', () => {
+    /** repo/pr with exactly three files: one core, one boilerplate, one wiring. */
+    async function setupSmartDiffPr(db: PgFixture['handle']['db'], ws: string) {
+      const name = `smart-diff-${repoSeq++}`;
+      const [repo] = await db
+        .insert(t.repos)
+        .values({ workspaceId: ws, owner: 'acme', name, fullName: `acme/${name}` })
+        .returning();
+      const [pr] = await db
+        .insert(t.pullRequests)
+        .values({
+          workspaceId: ws,
+          repoId: repo!.id,
+          number: 501,
+          title: 'Add pricing rules',
+          author: 'marisa.koch',
+          branch: 'feat/pricing',
+          base: 'main',
+          headSha: 'sha-smart-diff',
+          additions: 3,
+          deletions: 0,
+          filesCount: 3,
+          status: 'needs_review',
+        })
+        .returning();
+      await db.insert(t.prFiles).values([
+        { prId: pr!.id, path: 'src/pricing.ts', additions: 40, deletions: 5 },
+        { prId: pr!.id, path: 'pnpm-lock.yaml', additions: 500, deletions: 20 },
+        { prId: pr!.id, path: 'src/index.ts', additions: 3, deletions: 0 },
+      ]);
+      return { repo: repo!, pr: pr! };
+    }
+
+    it('no reviews → 200, three groups core/wiring/boilerplate, every findings []', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupSmartDiffPr(pg.handle.db, workspaceId);
+
+      const res = await app.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` });
+      expect(res.statusCode).toBe(200);
+      const body = SmartDiff.parse(res.json());
+      expect(body.groups.map((g) => g.role)).toEqual(['core', 'wiring', 'boilerplate']);
+      for (const group of body.groups) {
+        for (const file of group.files) {
+          expect(file.findings).toEqual([]);
+        }
+      }
+
+      await app.close();
+    });
+
+    it('with reviews + a dismissal: the core file carries one finding, one finding_lines entry, sorts first; a stale same-agent review is excluded', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupSmartDiffPr(pg.handle.db, workspaceId);
+      const agent = (
+        await app.inject({
+          method: 'POST',
+          url: '/agents',
+          payload: { name: 'SD Agent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+        })
+      ).json();
+
+      // Newer review: two findings on src/pricing.ts, one later dismissed.
+      const [reviewNew] = await pg.handle.db
+        .insert(t.reviews)
+        .values({
+          workspaceId,
+          prId: pr.id,
+          agentId: agent.id,
+          runId: null,
+          kind: 'review',
+          verdict: 'request_changes',
+          summary: 'newer review',
+          score: 50,
+          model: 'gpt-4.1',
+        })
+        .returning();
+      const findingRows = await pg.handle.db
+        .insert(t.findings)
+        .values([
+          {
+            reviewId: reviewNew!.id,
+            file: 'src/pricing.ts',
+            startLine: 10,
+            endLine: 10,
+            severity: 'CRITICAL',
+            category: 'bug',
+            title: 'kept',
+            rationale: 'r',
+            confidence: 0.9,
+          },
+          {
+            reviewId: reviewNew!.id,
+            file: 'src/pricing.ts',
+            startLine: 20,
+            endLine: 20,
+            severity: 'WARNING',
+            category: 'bug',
+            title: 'dismissed',
+            rationale: 'r',
+            confidence: 0.9,
+          },
+        ])
+        .returning();
+      await pg.handle.db
+        .update(t.findings)
+        .set({ dismissedAt: new Date() })
+        .where(eq(t.findings.id, findingRows[1]!.id));
+
+      // Older review, SAME agent — its findings must not appear:
+      // selectLatestReviewPerAgent keeps only the newest per agent.
+      const [reviewOld] = await pg.handle.db
+        .insert(t.reviews)
+        .values({
+          workspaceId,
+          prId: pr.id,
+          agentId: agent.id,
+          runId: null,
+          kind: 'review',
+          verdict: 'approve',
+          summary: 'older review',
+          score: 90,
+          model: 'gpt-4.1',
+          createdAt: new Date(Date.now() - 60_000),
+        })
+        .returning();
+      await pg.handle.db.insert(t.findings).values({
+        reviewId: reviewOld!.id,
+        file: 'src/pricing.ts',
+        startLine: 30,
+        endLine: 30,
+        severity: 'SUGGESTION',
+        category: 'style',
+        title: 'stale, must not appear',
+        rationale: 'r',
+        confidence: 0.5,
+      });
+
+      const res = await app.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` });
+      const body = SmartDiff.parse(res.json());
+      const core = body.groups.find((g) => g.role === 'core')!;
+      expect(core.files[0]!.path).toBe('src/pricing.ts');
+      expect(core.files[0]!.findings).toHaveLength(1);
+      expect(core.files[0]!.findings[0]!.severity).toBe('CRITICAL');
+      expect(core.files[0]!.finding_lines).toEqual([10]);
+
+      await app.close();
+    });
+
+    it('unknown PR uuid → 404', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/pulls/00000000-0000-0000-0000-000000000000/smart-diff',
+      });
+      expect(res.statusCode).toBe(404);
+      await app.close();
+    });
   });
 });

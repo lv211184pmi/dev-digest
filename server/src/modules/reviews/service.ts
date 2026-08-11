@@ -1,12 +1,18 @@
 import type { Container } from '../../platform/container.js';
-import type { FindingActionKind, RunEventKind, RunTrace } from '@devdigest/shared';
+import type { FindingActionKind, PrIntentRecord, RunEventKind, RunTrace, SmartDiff } from '@devdigest/shared';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { AgentRow } from '../../db/rows.js';
+import { RunLogger } from '../../platform/run-logger.js';
 import { ReviewRepository } from './repository.js';
+import type { PrIntentRow } from './repository/pull.repo.js';
 import { type ReviewDto, type ReviewDtoFinding } from './helpers.js';
 import { ReviewRunExecutor, type Logger } from './run-executor.js';
+import { loadDiff } from './diff-loader.js';
+import { deriveIntent } from './intent/service.js';
 import { actOnFinding as actOnFindingImpl } from './findings.js';
-import { reviewToDto } from './helpers.js';
+import { reviewToDto, prFileRowToSmartDiffFile, findingRowToSmartDiffFinding } from './helpers.js';
+import { buildSmartDiff } from './smart-diff/index.js';
+import { selectLatestReviewPerAgent } from '../pulls/status.js';
 
 // Re-export DTO types + converters for backward-compatible imports from
 // './service.js' (these previously lived here; logic now in ./helpers.ts).
@@ -25,6 +31,30 @@ export type { ReviewDto, ReviewDtoFinding } from './helpers.js';
  * Also: the finding accept/dismiss actions. The bulky run execution lives in
  * run-executor; this class keeps the public method surface.
  */
+/**
+ * `pr_intent` row → the `PrIntentRecord` DTO. Lives here so no Drizzle row type
+ * escapes the module. `is_stale` is derived, never stored.
+ */
+function intentRowToDto(row: PrIntentRow, currentHeadSha: string): PrIntentRecord {
+  return {
+    pr_id: row.prId,
+    intent: row.intent,
+    in_scope: row.inScope,
+    out_of_scope: row.outOfScope,
+    risk_areas: row.riskAreas,
+    confidence: row.confidence,
+    sources: row.sources,
+    head_sha: row.headSha,
+    provider: row.provider,
+    model: row.model,
+    cost_usd: row.costUsd,
+    tokens_in: row.tokensIn,
+    tokens_out: row.tokensOut,
+    derived_at: row.derivedAt?.toISOString() ?? null,
+    is_stale: row.headSha !== currentHeadSha,
+  };
+}
+
 export class ReviewService {
   private repo: ReviewRepository;
   private agents: Container['agentsRepo'];
@@ -176,5 +206,72 @@ export class ReviewService {
 
   async getRunTrace(runId: string): Promise<RunTrace | undefined> {
     return this.repo.getRunTrace(runId);
+  }
+
+  /**
+   * Deterministic Smart Diff for a PR's "Files changed" tab: files reordered
+   * by review risk, with findings from surviving reviews anchored to their
+   * lines. No model call — combines `pr_files` with the latest review per
+   * agent, exactly like the PR-list rollup (`selectLatestReviewPerAgent`).
+   */
+  async smartDiffForPull(workspaceId: string, prId: string): Promise<SmartDiff> {
+    const pull = await this.repo.getPull(workspaceId, prId);
+    if (!pull) throw new NotFoundError('Pull request not found');
+    const files = await this.repo.getPrFiles(prId);
+    const rows = await this.repo.reviewsForPull(prId);
+    const keep = selectLatestReviewPerAgent(
+      rows.map(({ review }) => ({ reviewId: review.id, agentId: review.agentId })),
+    );
+    const findings = rows
+      .filter(({ review }) => keep.has(review.id))
+      .flatMap(({ findings }) => findings)
+      .map(findingRowToSmartDiffFinding);
+    return buildSmartDiff({
+      files: files.map(prFileRowToSmartDiffFile),
+      findings,
+    });
+  }
+
+  // ===========================================================================
+  // Intent
+  // ===========================================================================
+
+  /**
+   * The stored intent for a PR. NO LLM call — 404 when it was never derived.
+   * `is_stale` is computed here (stored head vs the PR's current head) and is
+   * never persisted, the same shape as `deriveReviewStatus`.
+   */
+  async getIntent(workspaceId: string, prId: string): Promise<PrIntentRecord> {
+    const pull = await this.repo.getPull(workspaceId, prId);
+    if (!pull) throw new NotFoundError('Pull request not found');
+    const row = await this.repo.getIntent(prId);
+    if (!row) throw new NotFoundError('Intent not found');
+    return intentRowToDto(row, pull.headSha);
+  }
+
+  /** Force a fresh derivation and return it. Spends money — rate-limited at the route. */
+  async deriveIntentNow(workspaceId: string, prId: string, logger?: Logger): Promise<PrIntentRecord> {
+    const pull = await this.repo.getPull(workspaceId, prId);
+    if (!pull) throw new NotFoundError('Pull request not found');
+    const repo = await this.repo.getRepo(pull.repoId);
+    if (!repo) throw new NotFoundError('Repo not found');
+
+    const diff = await loadDiff(this.container, this.repo, workspaceId, pull, repo);
+    // Outside a run there is no runId to stream to; a RunLogger with an empty
+    // fan-out publishes nothing and still mirrors to the request logger. Better
+    // than inventing a run id that no client can subscribe to.
+    const runLog = new RunLogger(this.container.runBus, [], logger, { prId });
+
+    const { row } = await deriveIntent({
+      container: this.container,
+      repo: this.repo,
+      repoRow: repo,
+      pull,
+      diff,
+      workspaceId,
+      runLog,
+      force: true,
+    });
+    return intentRowToDto(row, pull.headSha);
   }
 }

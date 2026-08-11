@@ -1,6 +1,11 @@
 import type { CSSProperties } from "react";
 
 export const s = {
+  topRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 20,
+  } satisfies CSSProperties,
   descriptionBox: {
     border: "1px solid var(--border)",
     borderRadius: 8,

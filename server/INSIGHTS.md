@@ -51,6 +51,22 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-10** — the Smart Diff path classifier
+  (`src/modules/reviews/smart-diff/classify.ts`) puts the boilerplate
+  dir-segment rule (`node_modules, dist, vendor, generated, …`) *above* the
+  entrypoint/barrel rule (`index.ts, app.ts, main.ts, …`) — implementing rules
+  in a different order than the spec's table silently reclassifies a vendored
+  barrel like `client/src/vendor/ui/index.ts` as wiring instead of boilerplate.
+  First-match-wins classifiers like this need their rule *order* pinned by a
+  test, not just each rule's own logic — see
+  `test/smart-diff-classify.test.ts`'s `client/src/vendor/ui/index.ts` case.
+- **2026-08-10** — a domain-service file that already sources row types from
+  its module's `repository.ts` (e.g. `helpers.ts`'s existing
+  `FindingRow`/`PullRow`) must keep doing so for new row types too, never
+  reach for `db/schema.js` directly even for a one-off type. Added
+  `PrFileRow = Awaited<ReturnType<ReviewRepository['getPrFiles']>>[number]` in
+  `src/modules/reviews/helpers.ts` for this reason — importing `db/schema`
+  there would put a domain-model/domain-services file in the wrong onion ring.
 - **2026-08-04** — a feature's CRUD layer having its own `*.it.test.ts` does
   not mean its runtime *effect* is tested. `test/skills.it.test.ts` covered
   skill CRUD, versioning, and the `agent_skills` link/reorder round trip
@@ -85,6 +101,17 @@ _None yet._
 
 ## Tool & Library Notes
 
+- **2026-08-11** — `RipgrepCodeIndex.references()` and `.symbols()`
+  (`src/adapters/codeindex/ripgrep.ts:99-126`) do NOT shell out to ripgrep
+  despite the class name — only `.grep()` does. Both instead do a full
+  recursive `this.walk(root)` over the entire cloned repo, `readFile`-ing
+  every file under 2MB sequentially and regexing every line, with no cache,
+  no concurrency, and no cap. Cheap on a diff-scoped CI checkout; on a studio
+  review of a large monorepo it's a full-tree scan per call with no timeout.
+  Before calling `codeIndex.symbols`/`.references` on a request hot path,
+  check whether the persistent `symbols`/`references` tables
+  (`src/modules/repo-intel/repository.ts`) already cover the need instead —
+  see the `getCallerSignatures` fix below.
 - **2026-08-03** — `dependency-cruiser` is already a `server/` runtime
   dependency, but only used as a library for the repo-intel indexer
   (`src/adapters/depgraph/index.ts`), not wired to any architecture rule set.
@@ -95,7 +122,29 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
-_None yet._
+- **2026-08-11** — a review stuck logging `Resolving <provider> provider
+  done` and nothing after (no `Prompt assembled` line) is hung inside
+  `run-executor.ts`'s `buildCallersDigest`/`buildRepoMapDigest`/
+  `buildRankNote` — none of the three wrap themselves in a `runLog.step`
+  start event, only log on completion, so a hang there is silent in the Live
+  Log. Root cause found this date: `RepoIntelService.getCallerSignatures`
+  called `container.codeIndex.references()` (the ripgrep adapter's
+  full-repo-walk path — see Tool & Library Notes above) once per
+  changed-file symbol on EVERY review, indexed or not, contradicting
+  `repo-intel/types.ts`'s own "T2+ serves reads purely from the Postgres
+  cache" contract. **Fixed 2026-08-11** in `src/modules/repo-intel/
+  service.ts` — `getCallerSignatures` now reads exclusively from the
+  persistent index (mirrors `tryPersistentBlast`) and degrades to `[]` when
+  unindexed, same as `getRepoMap`/`getFileRank`. If a `repo-intel` facade
+  method is ever slow again, check first whether it's still calling
+  `container.codeIndex.*` instead of `this.repo.*`.
+- **2026-08-11** — `test/reviews.it.test.ts` (testcontainers Postgres) is
+  flaky independent of any code change: reran it 5× against unmodified code
+  and got 2 different failures on 2 of 5 runs (`Cannot read properties of
+  undefined (reading 'findings')` and `(reading 'skills')`), each time a
+  different subtest. Looks like testcontainers/DB timing under load, not a
+  logic bug — rerun 2-3× in isolation before assuming a local failure here
+  was caused by your change.
 
 ## Open Questions
 

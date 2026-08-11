@@ -69,7 +69,7 @@ flowchart TB
     polling["polling<br/>/repos/:id/poll"]
   end
   subgraph Review["Review & runs"]
-    reviews["reviews<br/>/pulls/:id/review · /reviews · /findings/:id/(accept|dismiss)<br/>/runs/:id/(events|trace)"]
+    reviews["reviews<br/>/pulls/:id/review · /pulls/:id/intent (GET·POST) · /reviews<br/>/pulls/:id/smart-diff · /findings/:id/(accept|dismiss) · /runs/:id/(events|trace)"]
   end
   subgraph Agents["Agents"]
     agents["agents<br/>/agents · /agents/:id"]
@@ -131,6 +131,20 @@ What the reviewer actually sends to the model is assembled in
 - **Grounding is mandatory.** Every finding must cite a line that exists in the
   diff or it is dropped (`groundFindings`), and the score is recomputed from the
   surviving findings — the model's self-reported score is ignored.
+- **Derived PR intent is untrusted; the rule for using it is trusted.** The
+  intent is classified ONCE per review batch (before the per-agent loop, so a
+  3-agent fan-out is one call) from the PR title/body, linked issues, in-repo
+  spec paths and the changed-file list + *synthesized* hunk headers — never diff
+  content. It is rendered into the prompt through `wrapUntrusted('intent', …)`,
+  while the instruction for reading it sits in the system message next to the
+  injection guard and is written to lose to it: scope marks a finding, it never
+  suppresses one. Confidence is derived from which sources resolved, never
+  emitted by the model. A failed derivation degrades to no intent section and
+  never fails the run; its cost is stored on `pr_intent` only.
+  - `GET /pulls/:id/intent` — the stored record (404 when never derived, no LLM
+    call). `is_stale` is derived from the stored head vs the PR's current head.
+  - `POST /pulls/:id/intent` — force a re-derive. Rate-limited like the review
+    trigger (10/min) because it spends money.
 
 ## Testing
 

@@ -36,6 +36,14 @@ export const FindingKind = z.enum([
 ]);
 export type FindingKind = z.infer<typeof FindingKind>;
 
+/**
+ * Whether a finding falls inside the PR's derived intent. A marker only —
+ * an out-of-scope finding is persisted and returned like any other, and the UI
+ * collapses it rather than dropping it.
+ */
+export const FindingScope = z.enum(['in_scope', 'out_of_scope']);
+export type FindingScope = z.infer<typeof FindingScope>;
+
 export const Verdict = z.enum(['request_changes', 'approve', 'comment']);
 export type Verdict = z.infer<typeof Verdict>;
 
@@ -69,6 +77,9 @@ export const Finding = z.object({
   suggestion: z.string().nullish(), // markdown
   confidence: z.number().min(0).max(1),
   kind: FindingKind.nullish(),
+  scope: FindingScope.nullish().describe(
+    'Classify against the derived intent when one is provided: `in_scope` if the finding is about what this PR set out to change, `out_of_scope` if it is about pre-existing code the PR merely touches. Use null when no derived intent was provided. A CRITICAL finding is NEVER out_of_scope.',
+  ),
   // Lethal-trifecta variant fields (present only when kind === 'lethal_trifecta')
   trifecta_components: z.array(TrifectaComponent).nullish(),
   evidence: z.array(TrifectaEvidence).nullish(),

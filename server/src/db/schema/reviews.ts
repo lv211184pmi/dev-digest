@@ -9,6 +9,7 @@ import {
   doublePrecision,
   index,
 } from 'drizzle-orm/pg-core';
+import type { IntentSource } from '@devdigest/shared';
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
@@ -59,6 +60,12 @@ export const findings = pgTable(
     suggestion: text('suggestion'),
     confidence: doublePrecision('confidence').notNull(),
     kind: text('kind').notNull().default('finding'),
+    /**
+     * Whether the finding falls inside the PR's derived intent. Nullable: null
+     * means no intent was available when the review ran, which is different
+     * from "the model judged it in scope".
+     */
+    scope: text('scope', { enum: ['in_scope', 'out_of_scope'] }),
     trifectaComponents: jsonb('trifecta_components').$type<string[]>(),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
@@ -70,6 +77,15 @@ export const findings = pgTable(
   }),
 );
 
+/**
+ * One derived intent per PR. No extra index: the PK is `pr_id` and every read
+ * is by that key.
+ *
+ * `head_sha` + `sources_hash` together form the cache key — a re-run against an
+ * unchanged head with unchanged source material skips the LLM call entirely.
+ * `confidence` is derived server-side from `sources`, never emitted by the
+ * model.
+ */
 export const prIntent = pgTable('pr_intent', {
   prId: uuid('pr_id')
     .primaryKey()
@@ -77,6 +93,19 @@ export const prIntent = pgTable('pr_intent', {
   intent: text('intent').notNull(),
   inScope: jsonb('in_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   outOfScope: jsonb('out_of_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  riskAreas: jsonb('risk_areas').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  confidence: text('confidence', { enum: ['high', 'medium', 'low'] })
+    .notNull()
+    .default('low'),
+  sources: jsonb('sources').$type<IntentSource[]>().notNull().default(sql`'[]'::jsonb`),
+  headSha: text('head_sha'),
+  sourcesHash: text('sources_hash'),
+  provider: text('provider'),
+  model: text('model'),
+  costUsd: doublePrecision('cost_usd'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  derivedAt: timestamp('derived_at', { withTimezone: true }).defaultNow(),
 });
 
 export const prBrief = pgTable('pr_brief', {

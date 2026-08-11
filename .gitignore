@@ -23,3 +23,6 @@ test-results/
 
 # emdash worktree config (local)
 .emdash.json
+
+# planner → implementer handoff artifacts (transient; implementer deletes on success)
+.claude/plans/

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { RepoIntelService } from '../src/modules/repo-intel/service.js';
 import type { RepoBasics } from '../src/modules/repo-intel/repository.js';
 import type { IndexState } from '../src/modules/repo-intel/types.js';
@@ -121,5 +121,99 @@ describe('RepoIntel facade — degraded contract (flag on, but no data)', () => 
   it('getCallerSignatures with empty changedFiles → []', async () => {
     const svc = buildDegradedService({ flag: true, basics: { id: 'r1', owner: 'a', name: 'b', clonePath: '/tmp' } });
     await expect(svc.getCallerSignatures('r1', [])).resolves.toEqual([]);
+  });
+});
+
+/**
+ * getCallerSignatures — persistent-index-only contract.
+ *
+ * Regression coverage for the hang reported against a large monorepo review:
+ * the old implementation called `container.codeIndex.references()` (a full
+ * recursive read-every-file-in-the-repo walk, once per declared symbol) on
+ * EVERY review, indexed repo or not. That made a review of a large repo do a
+ * full-tree scan with no cap and no timeout. `getCallerSignatures` must now
+ * serve exclusively from the persistent `symbols`/`references` tables — same
+ * as `getRepoMap`/`getFileRank` — and must NEVER reach `codeIndex.references`.
+ */
+describe('RepoIntel facade — getCallerSignatures persistent-index-only', () => {
+  function buildPersistentService(opts: {
+    indexStateRow: IndexState | null;
+    symbolRows?: { path: string; name: string; kind: string; line: number; endLine: number | null; exported: boolean; signature: string | null }[];
+    callerRows?: { fromPath: string; toSymbol: string; line: number; rank: number }[];
+  }) {
+    const referencesSpy = vi.fn(async () => []);
+    const container = {
+      config: { repoIntelEnabled: true },
+      db: {} as never,
+      codeIndex: { symbols: async () => [], references: referencesSpy } as never,
+    } as never;
+    const svc = new RepoIntelService(container);
+    (svc as unknown as { repo: Record<string, unknown> }).repo = {
+      getRepoBasics: async () => ({ id: 'r1', owner: 'a', name: 'b', clonePath: '/repo' }),
+      tryGetIndexState: async () => opts.indexStateRow,
+      getSymbolRows: async (_repoId: string, paths: string[]) =>
+        (opts.symbolRows ?? []).filter((s) => paths.includes(s.path)),
+      getResolvedCallers: async () => opts.callerRows ?? [],
+    };
+    return { svc, referencesSpy };
+  }
+
+  const baseState: IndexState = {
+    repoId: 'r1',
+    status: 'full',
+    filesIndexed: 100,
+    filesSkipped: 0,
+    durationMs: 1000,
+    lastIndexedSha: 'abc123',
+    indexerVersion: 1,
+    updatedAt: new Date(),
+  };
+
+  it('never calls codeIndex.references — no live full-repo walk when unindexed', async () => {
+    const { svc, referencesSpy } = buildPersistentService({ indexStateRow: null });
+    await expect(svc.getCallerSignatures('r1', ['src/api/public.ts'])).resolves.toEqual([]);
+    expect(referencesSpy).not.toHaveBeenCalled();
+  });
+
+  it('never calls codeIndex.references — serves callers from the persistent index instead', async () => {
+    const { svc, referencesSpy } = buildPersistentService({
+      indexStateRow: baseState,
+      symbolRows: [
+        {
+          path: 'src/api/public.ts',
+          name: 'handler',
+          kind: 'function',
+          line: 5,
+          endLine: 10,
+          exported: true,
+          signature: 'function handler(req)',
+        },
+        {
+          path: 'src/callers/consumer.ts',
+          name: 'run',
+          kind: 'function',
+          line: 1,
+          endLine: 20,
+          exported: true,
+          signature: 'function run()',
+        },
+      ],
+      callerRows: [{ fromPath: 'src/callers/consumer.ts', toSymbol: 'handler', line: 8, rank: 42 }],
+    });
+
+    const rows = await svc.getCallerSignatures('r1', ['src/api/public.ts']);
+
+    expect(rows).toEqual([
+      { file: 'src/callers/consumer.ts', symbol: 'run', signature: 'function run()', rank: 42 },
+    ]);
+    expect(referencesSpy).not.toHaveBeenCalled();
+  });
+
+  it('degrades to [] when the index exists but has no usable status (never falls back to a live scan)', async () => {
+    const { svc, referencesSpy } = buildPersistentService({
+      indexStateRow: { ...baseState, status: 'failed' },
+    });
+    await expect(svc.getCallerSignatures('r1', ['src/api/public.ts'])).resolves.toEqual([]);
+    expect(referencesSpy).not.toHaveBeenCalled();
   });
 });

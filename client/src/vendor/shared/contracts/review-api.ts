@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, SmartDiff } from './brief.js';
+import { Intent, IntentConfidence, IntentSource, SmartDiff } from './brief.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -56,8 +56,27 @@ export const ReviewRunResponse = z.object({
 });
 export type ReviewRunResponse = z.infer<typeof ReviewRunResponse>;
 
-/** Intent persisted for a PR (the Intent plus the pr_id it scopes). */
-export const PrIntentRecord = Intent.extend({ pr_id: z.string() });
+/**
+ * Intent persisted for a PR: the `Intent` the model produced plus everything the
+ * server derived around it. `confidence` and `sources` live here rather than on
+ * `Intent` precisely so the model cannot self-report them.
+ *
+ * `is_stale` is **server-derived** on read (the stored `head_sha` vs the PR's
+ * current head) and never stored — same shape as `deriveReviewStatus`.
+ */
+export const PrIntentRecord = Intent.extend({
+  pr_id: z.string(),
+  confidence: IntentConfidence,
+  sources: z.array(IntentSource),
+  head_sha: z.string().nullable(),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  cost_usd: z.number().nullable(),
+  tokens_in: z.number().int().nullable(),
+  tokens_out: z.number().int().nullable(),
+  derived_at: z.string().nullable(),
+  is_stale: z.boolean(),
+});
 export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
 
 /** Smart-diff response for a PR (the SmartDiff). */

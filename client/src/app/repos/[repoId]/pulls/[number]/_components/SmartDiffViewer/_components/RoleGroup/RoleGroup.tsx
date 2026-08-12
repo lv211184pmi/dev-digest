@@ -18,12 +18,15 @@ export function RoleGroup({
   filesByPath,
   target,
   onJump,
+  onOpenFinding,
 }: {
   role: SmartDiffRole;
   files: SmartDiffFile[];
   filesByPath: Map<string, PrFile>;
   target: { path: string; line: number; nonce: number } | null;
   onJump: (path: string, line: number) => void;
+  /** Opens a line's top finding on the Agent runs tab. */
+  onOpenFinding: (findingId: string) => void;
 }) {
   const t = useTranslations("prReview");
   // Boilerplate starts collapsed unless one of its files carries a finding
@@ -58,6 +61,7 @@ export function RoleGroup({
               role={role}
               target={target}
               onJump={onJump}
+              onOpenFinding={onOpenFinding}
             />
           ))}
         </div>

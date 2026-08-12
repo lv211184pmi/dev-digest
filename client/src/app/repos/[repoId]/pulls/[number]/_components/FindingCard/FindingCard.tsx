@@ -27,6 +27,8 @@ export function FindingCard({
   f,
   focused,
   defaultExpanded,
+  expandNonce,
+  shouldExpand,
   onAction,
   pending,
   repoFullName,
@@ -35,6 +37,15 @@ export function FindingCard({
   f: FindingRecord;
   focused?: boolean;
   defaultExpanded?: boolean;
+  /** Bumps on every deep-link click, the SAME value passed to every card in
+   *  the list (not just the targeted one) — `defaultExpanded` only seeds the
+   *  initial render, so re-syncing on a later click (the card may already be
+   *  mounted, e.g. its run was already open) needs an effect instead. Passing
+   *  it to every card, not just the target, is what lets a click also
+   *  collapse whichever card was previously open. */
+  expandNonce?: number;
+  /** Whether THIS card should end up expanded when `expandNonce` bumps. */
+  shouldExpand?: boolean;
   onAction?: (action: FindingActionKind, reply?: string) => void;
   pending?: boolean;
   repoFullName?: string | null;
@@ -42,6 +53,10 @@ export function FindingCard({
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
+
+  React.useEffect(() => {
+    if (expandNonce) setExpanded(!!shouldExpand);
+  }, [expandNonce, shouldExpand]);
   const sevColor = SEV_COLOR[f.severity] ?? SEV_COLOR_FALLBACK;
   const fileHref =
     repoFullName && headSha

@@ -86,6 +86,23 @@ export const s = {
   } satisfies CSSProperties,
 
   lineSeverity: { marginLeft: "auto", paddingRight: 8, display: "inline-flex" } satisfies CSSProperties,
+  lineSeverityTagBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+  } satisfies CSSProperties,
+  lineSeverityTag: (color: string): CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 12,
+    fontWeight: 600,
+    color,
+  }),
 } as const;
 
 /** Role colour square in a group header. */
@@ -93,9 +110,9 @@ export function roleSquareFor(colorVar: string): CSSProperties {
   return { width: 10, height: 10, borderRadius: 3, background: colorVar, flexShrink: 0 };
 }
 
-/** File card left edge — coloured by the file's most severe finding, a plain
-    border otherwise, so cards without findings don't shift width. */
-export function fileCardEdgeFor(severity: Severity | null): CSSProperties {
+/** Diff row left edge — coloured only on the exact line a finding cites, so
+    the marker reads as "this line" rather than "this file" or "this hunk". */
+export function lineSeverityEdgeFor(severity: Severity | null): CSSProperties {
   return { borderLeft: `3px solid ${severity ? SEV[severity].c : "transparent"}` };
 }
 

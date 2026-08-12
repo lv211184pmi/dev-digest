@@ -112,7 +112,7 @@
     "boilerplateDesc": "Generated, docs and mechanical — skim",
     "stats": "{files} files · +{additions} −{deletions}",
     "findingsBadge": "{count} findings",
-    "jumpToFinding": "Jump to this finding",
+    "viewFindingInAgentRuns": "View this finding in Agent runs",
     "noSmartDiff": "Smart order isn’t available for this PR — showing Original order."
   },
   "list": {

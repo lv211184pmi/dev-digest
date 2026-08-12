@@ -74,6 +74,19 @@ export default function PRDetailPage() {
   };
   const setTab = (t: string) => setParam("tab", t);
 
+  // Files changed → Agent runs: clicking a Smart Diff line's severity tag
+  // switches tab and hands FindingsTab the exact finding to open + scroll to.
+  // Kept as component state (not a URL param) — same pattern as the
+  // Timeline→"go to review" jump inside FindingsTab itself. The nonce isn't
+  // strictly needed today (FindingsTab unmounts on every tab switch, so a
+  // fresh mount always sees the latest id), but it's cheap insurance if that
+  // ever changes.
+  const [findingTarget, setFindingTarget] = React.useState<{ id: string; n: number } | null>(null);
+  const openFinding = (findingId: string) => {
+    setFindingTarget((p) => ({ id: findingId, n: (p?.n ?? 0) + 1 }));
+    setTab("findings");
+  };
+
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
   const allFindings: FindingRecord[] = React.useMemo(
@@ -157,6 +170,8 @@ export default function PRDetailPage() {
             repoFullName={repoFullName}
             headSha={pr.head_sha}
             cancelMutation={cancel}
+            targetFindingId={findingTarget?.id ?? null}
+            targetFindingNonce={findingTarget?.n ?? 0}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
               if (window.confirm("Delete this run from history? (its logs are removed too)"))
@@ -177,6 +192,7 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            onOpenFinding={openFinding}
           />
         )}
       </div>

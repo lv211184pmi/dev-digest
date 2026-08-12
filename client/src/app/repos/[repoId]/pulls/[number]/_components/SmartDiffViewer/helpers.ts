@@ -1,6 +1,5 @@
 /** Pure helpers for SmartDiffViewer — no React, no fetch. */
-import type { PrFile, Severity, SmartDiffFinding } from "@devdigest/shared";
-import { SEVERITY_RANK } from "./constants";
+import type { PrFile, SmartDiffFinding } from "@devdigest/shared";
 
 /** Index the PR's files by path once, for O(1) lookup per `SmartDiffFile` —
     the server response deliberately carries no patch text, so the viewer
@@ -24,14 +23,4 @@ export function findingsByNewLine(findings: SmartDiffFinding[]): Map<number, Sma
     else map.set(f.start_line, [f]);
   }
   return map;
-}
-
-/** The most severe finding among a file's findings, or null when there are
-    none — drives the file card's left-edge colour. */
-export function topSeverity(findings: SmartDiffFinding[]): Severity | null {
-  let top: Severity | null = null;
-  for (const f of findings) {
-    if (top == null || SEVERITY_RANK[f.severity] < SEVERITY_RANK[top]) top = f.severity;
-  }
-  return top;
 }

@@ -7,7 +7,7 @@ import type { IconName } from "@devdigest/ui";
 export const ROLE_ORDER: SmartDiffRole[] = ["core", "wiring", "boilerplate"];
 
 /** Left-edge accent colour per role, distinct from severity colours (used on
-    the file-card left edge) so the two signals never collide visually. */
+    a finding's own diff line) so the two signals never collide visually. */
 export const ROLE_COLOR_VAR: Record<SmartDiffRole, string> = {
   core: "var(--accent)",
   wiring: "var(--warn)",
@@ -38,5 +38,13 @@ export const ROLE_ICON: Record<SmartDiffRole, IconName> = {
 /** How long a jumped-to line stays highlighted before fading back. */
 export const HIGHLIGHT_MS = 1200;
 
-/** Lower is more severe — drives `topSeverity`'s comparison in `helpers.ts`. */
-export const SEVERITY_RANK: Record<Severity, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
+/** Line-badge label per severity — deliberately not `SEV[severity].label`
+    (that's "Critical"/"Warning"/"Suggestion", used everywhere else). The
+    design for this one spot renames CRITICAL to "blocker" and lowercases all
+    three, so it stays local to Smart Diff rather than changing the shared
+    vendor token every other severity badge in the app reads from. */
+export const LINE_BADGE_LABEL: Record<Severity, string> = {
+  CRITICAL: "blocker",
+  WARNING: "warning",
+  SUGGESTION: "suggestion",
+};

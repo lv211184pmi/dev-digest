@@ -24,10 +24,15 @@ export function SmartDiffViewer({
   smartDiff,
   files,
   initialTarget = null,
+  onOpenFinding,
 }: {
   smartDiff: SmartDiff;
   files: PrFile[];
   initialTarget?: { path: string; line: number } | null;
+  /** Opens a line's top finding on the Agent runs tab; a no-op default keeps
+      this component usable standalone (e.g. in tests) without the caller
+      wiring cross-tab navigation. */
+  onOpenFinding?: (findingId: string) => void;
 }) {
   const t = useTranslations("prReview");
   const filesByPath = React.useMemo(() => indexFilesByPath(files), [files]);
@@ -87,6 +92,7 @@ export function SmartDiffViewer({
             filesByPath={filesByPath}
             target={target}
             onJump={jumpTo}
+            onOpenFinding={onOpenFinding ?? (() => {})}
           />
         ))}
       </div>

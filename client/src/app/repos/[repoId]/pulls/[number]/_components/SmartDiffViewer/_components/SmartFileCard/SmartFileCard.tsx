@@ -1,7 +1,10 @@
 /* SmartFileCard — one collapsible file in Smart order: header (path, +/- stat,
    "N findings" jump badge) and, when open, its parsed lines. Deliberately not
-   FileCard: no commenting, plus a colour-coded left edge and a force-open
-   rule driven by findings/role instead of just size. */
+   FileCard: no commenting, plus a force-open rule driven by findings/role
+   instead of just size. No file-level severity colouring — that indicator is
+   deliberately scoped to just the line(s) that carry a finding (see
+   SmartCodeLine's left edge), so a file's border never implies "the whole
+   file is a problem" when only one line in it is. */
 "use client";
 
 import React from "react";
@@ -9,8 +12,8 @@ import { useTranslations } from "next-intl";
 import { Icon } from "@devdigest/ui";
 import type { PrFile, SmartDiffFile, SmartDiffRole } from "@devdigest/shared";
 import { AUTO_EXPAND_MAX_LINES, chevronFor, diffStyles, parsePatch } from "@/components/diff-viewer";
-import { findingsByNewLine, topSeverity } from "../../helpers";
-import { s, fileCardEdgeFor } from "../../styles";
+import { findingsByNewLine } from "../../helpers";
+import { s } from "../../styles";
 import { SmartCodeLine } from "../SmartCodeLine";
 
 /** Open by default when the group is core/wiring and the file is small, or
@@ -28,6 +31,7 @@ export function SmartFileCard({
   role,
   target,
   onJump,
+  onOpenFinding,
 }: {
   file: SmartDiffFile;
   prFile: PrFile | undefined;
@@ -35,6 +39,8 @@ export function SmartFileCard({
   /** Current scroll-to-line target, owned by SmartDiffViewer. */
   target: { path: string; line: number; nonce: number } | null;
   onJump: (path: string, line: number) => void;
+  /** Opens a line's top finding on the Agent runs tab. */
+  onOpenFinding: (findingId: string) => void;
 }) {
   const tShell = useTranslations("shell");
   const t = useTranslations("prReview");
@@ -47,13 +53,12 @@ export function SmartFileCard({
 
   const lines = React.useMemo(() => parsePatch(prFile?.patch), [prFile?.patch]);
   const findingsByLine = React.useMemo(() => findingsByNewLine(file.findings), [file.findings]);
-  const edgeSeverity = topSeverity(file.findings);
 
   const targetLine = target && target.path === file.path ? target.line : null;
   const targetNonce = target?.nonce ?? 0;
 
   return (
-    <div style={{ ...diffStyles.fileCard, ...fileCardEdgeFor(edgeSeverity) }}>
+    <div style={diffStyles.fileCard}>
       <div
         role="button"
         tabIndex={0}
@@ -100,7 +105,7 @@ export function SmartFileCard({
                 findings={ln.newNo != null ? (findingsByLine.get(ln.newNo) ?? []) : []}
                 targetLine={targetLine}
                 targetNonce={targetNonce}
-                onJump={onJump}
+                onOpenFinding={onOpenFinding}
               />
             ))
           )}

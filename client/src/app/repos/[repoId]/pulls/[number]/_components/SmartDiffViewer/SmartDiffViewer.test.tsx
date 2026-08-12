@@ -100,11 +100,30 @@ describe("SmartDiffViewer", () => {
     expect(screen.getByText("readmeline2")).toBeInTheDocument();
 
     // The CRITICAL finding's badge sits on the line whose newNo === start_line
-    // (line5 of src/pricing.ts), not on a neighbouring line.
+    // (line5 of src/pricing.ts), not on a neighbouring line — rendered as the
+    // design's plain "blocker" tag (CRITICAL renamed for this one spot).
     const line5Row = screen.getByText("line5").closest('[id^="sd-line-"]') as HTMLElement;
-    expect(within(line5Row).getByRole("button", { name: /Jump to this finding/i })).toBeInTheDocument();
+    expect(within(line5Row).getByRole("button", { name: /View this finding in Agent runs/i })).toBeInTheDocument();
+    expect(within(line5Row).getByText("blocker")).toBeInTheDocument();
     const line4Row = screen.getByText("line4").closest('[id^="sd-line-"]') as HTMLElement;
-    expect(within(line4Row).queryByRole("button", { name: /Jump to this finding/i })).not.toBeInTheDocument();
+    expect(
+      within(line4Row).queryByRole("button", { name: /View this finding in Agent runs/i }),
+    ).not.toBeInTheDocument();
+
+    // The WARNING finding on README.md renders lowercase too.
+    expect(screen.getByText("warning")).toBeInTheDocument();
+  });
+
+  it("opens the finding on the Agent runs tab when a line's severity tag is clicked", () => {
+    const onOpenFinding = vi.fn();
+    renderWithIntl(<SmartDiffViewer smartDiff={SMART_DIFF} files={FILES} onOpenFinding={onOpenFinding} />);
+
+    // Two lines carry a severity tag (f1 on src/pricing.ts, f2 on README.md) —
+    // click the one on line5's row and confirm it opens THAT finding, not the
+    // other.
+    const line5Row = screen.getByText("line5").closest('[id^="sd-line-"]') as HTMLElement;
+    fireEvent.click(within(line5Row).getByRole("button", { name: /View this finding in Agent runs/i }));
+    expect(onOpenFinding).toHaveBeenCalledWith("f1");
   });
 
   it("collapses the core group when its header is clicked", () => {

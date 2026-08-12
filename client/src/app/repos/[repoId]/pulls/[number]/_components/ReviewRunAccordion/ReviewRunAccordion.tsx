@@ -31,6 +31,8 @@ export function ReviewRunAccordion({
   headSha,
   targetRunId = null,
   targetNonce = 0,
+  targetFindingId = null,
+  targetFindingNonce = 0,
 }: {
   review: ReviewRecord;
   prId: string;
@@ -41,16 +43,24 @@ export function ReviewRunAccordion({
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
   targetNonce?: number;
+  /** A specific finding to focus once open — when set, FindingsPanel's own
+   *  scroll-to-card takes over and this accordion skips scrolling to its own
+   *  root, so the more specific target wins the final scroll position. */
+  targetFindingId?: string | null;
+  /** Own nonce, deliberately separate from `targetNonce` (the Timeline's
+   *  run-level one) — a Timeline click on an unrelated run must not re-trigger
+   *  a stale finding target left over from an earlier Files-changed click. */
+  targetFindingNonce?: number;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   React.useEffect(() => {
     if (review.run_id && review.run_id === targetRunId) {
       setOpen(true);
-      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (!targetFindingId) rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetRunId, targetNonce, review.run_id]);
+  }, [targetRunId, targetNonce, review.run_id, targetFindingId]);
   const del = useDeleteReview(prId);
   const findings = review.findings;
   const blockers = findings.filter((f) => f.severity === "CRITICAL" && !f.dismissed_at).length;
@@ -152,6 +162,8 @@ export function ReviewRunAccordion({
             prId={prId}
             repoFullName={repoFullName}
             headSha={headSha}
+            targetFindingId={review.run_id === targetRunId ? targetFindingId : null}
+            targetFindingNonce={review.run_id === targetRunId ? targetFindingNonce : 0}
           />
         </div>
       )}

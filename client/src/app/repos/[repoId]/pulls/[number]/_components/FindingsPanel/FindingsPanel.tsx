@@ -30,17 +30,50 @@ export function FindingsPanel({
   prId,
   repoFullName,
   headSha,
+  targetFindingId = null,
+  targetFindingNonce = 0,
 }: {
   findings: FindingRecord[];
   prId: string;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** A finding to focus, expand and scroll to (deep-linked from the Files
+   *  changed tab's severity tag via ReviewRunAccordion). */
+  targetFindingId?: string | null;
+  /** Bumps on every click, even re-clicking the same finding — this panel
+   *  does NOT always remount when the target changes (the accordion it lives
+   *  in may already be open), so targeting has to be a live-syncing effect
+   *  keyed on this nonce rather than one-time mount state. */
+  targetFindingNonce?: number;
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [hideLow, setHideLow] = React.useState(false);
   const [showOutOfScope, setShowOutOfScope] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
+
+  // Re-resolve focus + reveal an out-of-scope target on every new target
+  // click, not just at mount — see `targetFindingNonce` above.
+  React.useEffect(() => {
+    if (!targetFindingId) return;
+    const { inScope, outOfScope } = splitByScope(findings, false);
+    if (!inScope.some((f) => f.id === targetFindingId)) setShowOutOfScope(true);
+    const idx = [...inScope, ...outOfScope].findIndex((f) => f.id === targetFindingId);
+    if (idx >= 0) setFocusIdx(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetFindingId, targetFindingNonce]);
+
+  // Scroll the targeted card into view on every new target click. Matched via
+  // dataset rather than a `[data-finding-id="…"]` selector — no CSS.escape
+  // dependency, and finding ids are opaque strings not guaranteed CSS-safe.
+  React.useEffect(() => {
+    if (!targetFindingId) return;
+    const nodes = rootRef.current?.querySelectorAll<HTMLElement>("[data-finding-id]") ?? [];
+    const el = Array.from(nodes).find((n) => n.dataset.findingId === targetFindingId);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetFindingId, targetFindingNonce]);
 
   const { inScope, outOfScope } = React.useMemo(
     () => splitByScope(findings, hideLow),
@@ -69,7 +102,7 @@ export function FindingsPanel({
   }, [shown, focusIdx, action, prId]);
 
   return (
-    <div>
+    <div ref={rootRef}>
       <div style={s.toolbar}>
         <div style={s.toggleGroup}>
           {t("panel.hideLowConfidence")}
@@ -86,7 +119,19 @@ export function FindingsPanel({
               <FindingCard
                 f={f}
                 focused={i === focusIdx}
-                defaultExpanded={i === 0}
+                // Only seed "open by default" from index when there's no
+                // target — `expandNonce`/`shouldExpand` below are what
+                // actually open (and close every other) card on a click, and
+                // `defaultExpanded` only sets each card's OWN initial state
+                // once, so seeding it from `focusIdx` here (which starts at 0
+                // and is corrected a moment later by the sync effect) would
+                // leave the wrong card stuck open too.
+                defaultExpanded={!targetFindingId && i === focusIdx}
+                // Passed to EVERY card, not just the targeted one, so a click
+                // also collapses whichever card was previously expanded —
+                // only `f.id === targetFindingId` ends up open.
+                expandNonce={targetFindingNonce}
+                shouldExpand={f.id === targetFindingId}
                 pending={action.isPending}
                 repoFullName={repoFullName}
                 headSha={headSha}

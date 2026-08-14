@@ -18,6 +18,7 @@ import { Container, type ContainerOverrides } from './platform/container.js';
 import { AppError } from './platform/errors.js';
 import { modules } from './modules/index.js';
 import { ReviewService } from './modules/reviews/service.js';
+import { ConventionsRepository } from './modules/conventions/infrastructure/persistence/conventions.repository.js';
 
 // Attach the DI container to every request/instance.
 declare module 'fastify' {
@@ -83,6 +84,20 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
   } catch (err) {
     app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
+  }
+
+  // Same reasoning as above, for convention_runs: nothing else reaps `jobs`,
+  // so a queued/running row left behind by a crashed process would block that
+  // repo's `convention_runs_active_uniq` partial index FOREVER (every
+  // extraction attempt 409s) without this. Unconditional — every active row
+  // here predates this boot.
+  try {
+    const reapedConventions = await new ConventionsRepository(db).reapActiveRuns('interrupted by restart');
+    if (reapedConventions > 0) {
+      app.log.info({ reaped: reapedConventions }, 'reaped stale running convention_runs on boot');
+    }
+  } catch (err) {
+    app.log.warn({ err: (err as Error).message }, 'convention_runs reaping failed (non-fatal)');
   }
 
   // Security headers (X-Content-Type-Options, X-Frame-Options, …). The API

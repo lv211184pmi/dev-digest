@@ -38,3 +38,11 @@ export {
 } from "./reviews";
 export { useRunTrace } from "./trace";
 export { useRepoIntelStatus, useResyncRepoIntel } from "./repo-intel";
+export {
+  useConventions,
+  useExtractConventions,
+  useUpdateConvention,
+  useConventionDecisions,
+  useConventionSkillDraft,
+  useCreateConventionSkill,
+} from "./conventions";

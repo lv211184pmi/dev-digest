@@ -15,6 +15,10 @@ import {
   Settings,
   Repo,
   PrDetail,
+  ConventionCandidate,
+  ConventionRun,
+  ConventionsView,
+  ConventionSkillDraft,
 } from '@devdigest/shared';
 
 /**
@@ -207,6 +211,58 @@ describe('platform DTOs', () => {
     const s = Settings.parse({ extra_key: 'x' });
     expect(s.theme).toBe('dark');
     expect((s as Record<string, unknown>).extra_key).toBe('x');
+  });
+
+  it('ConventionCandidate / ConventionRun / ConventionsView / ConventionSkillDraft', () => {
+    const candidate = ConventionCandidate.parse({
+      id: 'c1',
+      run_id: 'r1',
+      category: 'error_handling',
+      rule: 'Domain errors extend AppError with a stable code.',
+      evidence_path: 'src/api/users.ts',
+      evidence_snippet: 'export class NotFoundError extends AppError {',
+      evidence_start_line: 23,
+      evidence_end_line: 31,
+      confidence: 0.91,
+      accepted: true,
+      created_at: '2026-08-05T00:00:00Z',
+    });
+    expect(candidate.category).toBe('error_handling');
+
+    const run = ConventionRun.parse({
+      id: 'r1',
+      repo_id: 'repo1',
+      status: 'done',
+      sample_count: 17,
+      candidate_count: 5,
+      dropped_count: 2,
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-v4-flash',
+      tokens_in: 12000,
+      tokens_out: 800,
+      cost_usd: 0.004,
+      skill_id: null,
+      error: null,
+      created_at: '2026-08-05T00:00:00Z',
+      finished_at: '2026-08-05T00:01:00Z',
+    });
+    expect(run.status).toBe('done');
+
+    expect(() => ConventionsView.parse({ run: null, candidates: [] })).not.toThrow();
+    expect(() => ConventionsView.parse({ run, candidates: [candidate] })).not.toThrow();
+
+    expect(() =>
+      ConventionSkillDraft.parse({
+        name: 'payments-api-conventions',
+        description: 'Extracted conventions for acme/payments-api.',
+        type: 'convention',
+        enabled: true,
+        body: '# payments-api-conventions\n\n...',
+        evidence_files: ['src/api/users.ts'],
+        source_count: 1,
+        repo_name: 'acme/payments-api',
+      }),
+    ).not.toThrow();
   });
 
   it('Repo + PrDetail', () => {

@@ -64,6 +64,39 @@ lets `POST /skills` set `enabled: true` with a non-manual `source` without a
 review step — at that point the un-delimited prompt path becomes a real
 injection vector and `wrapUntrusted()` should be applied to `skillsBlock` in
 `reviewer-core/src/prompt.ts:88`.
+**2026-08-05 update:** this trip-wire fired — see the Conventions Extractor
+entry immediately below, which deliberately defaults `enabled: true` for
+`source: 'extracted'`. The three properties that make it defensible there are
+exactly the ones this entry named as the bar to clear.
+
+### 2026-08-05 — Conventions Extractor defaults the created skill's `enabled` to `true`
+
+**What:** `CreateConventionSkillModal` (`client/src/app/conventions/_components/ConventionsView/_components/CreateConventionSkillModal/`)
+defaults the new skill's Enabled toggle to ON, and the server never forces it
+off — `source: 'extracted'`, `type: 'convention'`. This is a deliberate
+exception to the rule above ("non-manual sources default `enabled: false`").
+**Why:** three properties hold simultaneously, all required: (1) the skill
+body — rendered server-side by `server/src/modules/conventions/domain-services/merge.ts`'s
+`renderConventionsSkillBody()` — contains only model-written rule sentences
+and `path:line` citations, never raw repo code (deliberately: code snippets
+were named as "decisively the injection surface" in the module's design);
+(2) every rule is passed through `sanitizeRule()` (newlines collapsed,
+leading `#`/backtick fences stripped, capped at 300 chars) before merge;
+(3) the create-skill modal **is** the vetting step — every field is
+seeded from a server-rendered draft (`GET .../skill-draft`) into local
+component state the user can edit, and there is no code path from an
+extraction run to a saved skill that didn't pass through this modal, unlike
+`importCommunity()` / archive import which persist immediately with
+`enabled: false` and no forced review screen.
+**Rejected:** keeping the inherited `enabled: false` default — considered and
+rejected because it would make "Create skill" silently produce a skill that
+does nothing until a second, easy-to-forget trip to Skills Lab, for content
+that was already the single most vetted of any non-manual source.
+**Cost / what to watch:** `wrapUntrusted(skillsBlock)` in
+`reviewer-core/src/prompt.ts:88` is still outstanding hardening, not applied.
+If a future change lets raw evidence snippets into the skill body, or lets
+`POST /conventions/runs/:id/skill` be called without the modal (e.g. a bulk
+"create for all repos" action), revisit this default immediately.
 
 ### 2026-08-02 — AGENTS.md is the source of truth; CLAUDE.md is a symlink to it
 

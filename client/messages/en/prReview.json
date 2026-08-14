@@ -45,7 +45,33 @@
   "panel": {
     "hideLowConfidence": "Hide low confidence",
     "noMatchTitle": "No findings match",
-    "noMatchBody": "Adjust the filters above, or run a review to generate findings."
+    "noMatchBody": "Adjust the filters above, or run a review to generate findings.",
+    "outOfScopeShow": "{count} out-of-scope · show",
+    "outOfScopeHide": "{count} out-of-scope · hide",
+    "outOfScopeNote": "Outside what this PR set out to change — kept, never deleted."
+  },
+  "intent": {
+    "title": "Intent",
+    "summary": "Summary",
+    "inScope": "✓ In scope",
+    "outOfScope": "✗ Out of scope",
+    "riskAreas": "⚠ Risk areas",
+    "emptyTitle": "No intent derived yet",
+    "emptyBody": "Derive what this PR sets out to change, so findings can be marked in or out of scope.",
+    "derive": "Derive intent",
+    "stale": "PR updated since this intent was derived",
+    "reDerive": "Re-derive",
+    "lowConfidence": "Low confidence",
+    "missingIntro": "Missing context:",
+    "missing": {
+      "pr_title": "no title",
+      "pr_body": "no description",
+      "linked_issue": "ticket {ref} unreachable",
+      "repo_spec": "spec {ref} unreadable",
+      "changed_files": "no changed files",
+      "commit_messages": "no commit messages",
+      "external_link": "external link not fetched ({ref})"
+    }
   },
   "runReview": {
     "runAll": "Run all enabled agents",
@@ -76,7 +102,18 @@
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
     "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "groupedByRole": "Smart Diff · grouped by role",
+    "header": "Reviewer-ordered diff",
+    "orderSmart": "Smart order",
+    "orderOriginal": "Original order",
+    "orderHint": "Inline comments are available in Original order",
+    "coreDesc": "The substance of the change — review closely",
+    "wiringDesc": "Tests, config and wiring — check it lines up",
+    "boilerplateDesc": "Generated, docs and mechanical — skim",
+    "stats": "{files} files · +{additions} −{deletions}",
+    "findingsBadge": "{count} findings",
+    "viewFindingInAgentRuns": "View this finding in Agent runs",
+    "noSmartDiff": "Smart order isn’t available for this PR — showing Original order."
   },
   "list": {
     "breadcrumb": "Pull Requests",

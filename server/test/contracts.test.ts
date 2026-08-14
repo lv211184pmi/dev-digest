@@ -71,7 +71,7 @@ describe('AI contracts parse fixtures', () => {
 
   it('Intent / BlastRadius / Risks / PrHistory', () => {
     expect(() =>
-      Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'] }),
+      Intent.parse({ intent: 'x', in_scope: ['a'], out_of_scope: ['b'], risk_areas: ['auth'] }),
     ).not.toThrow();
     expect(() =>
       BlastRadius.parse({
@@ -119,6 +119,32 @@ describe('AI contracts parse fixtures', () => {
       split_suggestion: { too_big: false, total_lines: 285, proposed_splits: [] },
     });
     expect(d.groups[0]!.role).toBe('core');
+    // back-compat: a fixture that omits `findings` still parses, defaulting to [].
+    expect(d.groups[0]!.files[0]!.findings).toEqual([]);
+  });
+
+  it('SmartDiff with populated findings, including a CRITICAL entry', () => {
+    const d = SmartDiff.parse({
+      groups: [
+        {
+          role: 'core',
+          files: [
+            {
+              path: 'src/config.ts',
+              additions: 12,
+              deletions: 1,
+              finding_lines: [11],
+              findings: [
+                { finding_id: 'f-valid', severity: 'CRITICAL', start_line: 11, end_line: 11 },
+              ],
+            },
+          ],
+        },
+      ],
+      split_suggestion: { too_big: false, total_lines: 13, proposed_splits: [] },
+    });
+    expect(d.groups[0]!.files[0]!.findings).toHaveLength(1);
+    expect(d.groups[0]!.files[0]!.findings[0]!.severity).toBe('CRITICAL');
   });
 
   it('Conformance / Onboarding / EvalRun / MemoryItem', () => {

@@ -71,6 +71,10 @@ export interface ReviewInput {
   /** PR author's description/body (untrusted; truncated + delimiter-wrapped in
       the prompt). Empty/undefined → section omitted. */
   prDescription?: string;
+  /** Derived PR intent block (untrusted; delimiter-wrapped in the prompt — the
+      rule for reading it lives in the trusted system message). Empty/undefined
+      → section omitted. */
+  intent?: string;
   /** Task framing line, e.g. "Review PR #482 …". */
   task?: string;
   /** Override the structured-output retry budget. */
@@ -84,6 +88,23 @@ export interface ReviewInput {
   sessionId?: string;
   /** Progress sink. */
   onEvent?: (e: ReviewEvent) => void;
+  /**
+   * Optional token counter for the prompt-assembly manifest. Injected, so the
+   * engine takes no tokenizer dependency: the server passes its tiktoken
+   * adapter, the CI runner may omit it and the manifest reports `chars` only.
+   */
+  countTokens?: (text: string) => number;
+  /**
+   * Verbose prompt logging — adds a short one-way content digest per section to
+   * the manifest. NEVER adds content. Callers must gate this to local/dev.
+   */
+  verbosePromptLog?: boolean;
+  /**
+   * Correlation id tying every LLM call made for one PR review together — the
+   * cheap intent classifier and this review share it, so a single grep pulls
+   * the whole chain out of the logs.
+   */
+  correlationId?: string;
   /**
    * Cancellation checkpoint, called before each (expensive) chunk LLM call.
    * Supply a function that THROWS to abort mid-run (the caller owns the error
@@ -135,11 +156,35 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     callers: input.callers,
     repoMap: input.repoMap,
     prDescription: input.prDescription,
+    intent: input.intent,
     task: input.task,
   };
 
+  const assembleOpts = {
+    ...(input.countTokens ? { countTokens: input.countTokens } : {}),
+    ...(input.verbosePromptLog ? { verbose: true } : {}),
+  };
+
   // Whole-diff assembly is the trace default; overwritten below for single-pass.
-  let assembly: PromptAssembly = assemblePrompt({ ...promptParts, diff: input.diff.raw }).assembly;
+  const whole = assemblePrompt({ ...promptParts, diff: input.diff.raw }, assembleOpts);
+  let assembly: PromptAssembly = whole.assembly;
+
+  // Structured record of WHAT went into the prompt — section, source, trust and
+  // size, never content (see PromptSectionMeta). Emitted once per review, off
+  // the whole-diff assembly, so map-reduce reports the composition the caller
+  // actually configured rather than one arbitrary chunk's slice of the diff.
+  emit(
+    'info',
+    `Prompt assembled — ${whole.manifest.length} section(s), ${whole.manifest.reduce((n, s) => n + s.chars, 0)} chars`,
+    {
+      event: 'prompt_assembly',
+      ...(input.correlationId ? { correlation_id: input.correlationId } : {}),
+      call: 'review',
+      model: input.model,
+      mode,
+      sections: whole.manifest,
+    },
+  );
 
   const chunks =
     mode === 'map-reduce'
@@ -169,7 +214,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       mode === 'map-reduce' ? `map: reviewing ${chunk.label}` : `Reviewing ${chunk.label} in one pass`,
       { file: chunk.label },
     );
-    const a = assemblePrompt({ ...promptParts, diff: chunk.diffText });
+    const a = assemblePrompt({ ...promptParts, diff: chunk.diffText }, assembleOpts);
     if (mode === 'single-pass') assembly = a.assembly;
     const res = await input.llm.completeStructured<Review>({
       model: input.model,

@@ -13,6 +13,7 @@ import type {
   IssueMeta,
 } from '@devdigest/shared';
 import { withRetry, withTimeout } from '../../platform/resilience.js';
+import { parseIssueRefs } from './issue-refs.js';
 
 const TIMEOUT = 30_000;
 
@@ -123,15 +124,27 @@ export class OctokitGitHubClient implements GitHubClient {
     );
   }
 
-  /** linked issue via regex on PR body (#123 / closes #123). */
+  /**
+   * The first linked issue that actually resolves.
+   *
+   * `parseIssueRefs` recognises bare `#123`, `owner/repo#123` and full
+   * github.com issue/pull URLs (REST `/repos/{owner}/{repo}/issues/{n}` serves
+   * both). Cross-repo needs no port change — `getIssue` already takes a
+   * `RepoRef`. `PrDetail.linked_issue` stays a single `IssueMeta`, so the
+   * contract is unchanged.
+   *
+   * Each ref is tried in its own try/catch: one 404 must not abort the rest.
+   */
   private async resolveLinkedIssue(repo: RepoRef, body: string): Promise<IssueMeta | undefined> {
-    const m = body.match(/(?:closes|fixes|resolves)?\s*#(\d+)/i);
-    if (!m?.[1]) return undefined;
-    try {
-      return await this.getIssue(repo, Number(m[1]));
-    } catch {
-      return undefined;
+    const { issues } = parseIssueRefs(body, { owner: repo.owner, name: repo.name });
+    for (const ref of issues) {
+      try {
+        return await this.getIssue({ owner: ref.owner, name: ref.name }, ref.number);
+      } catch {
+        // Unreachable ref (404 / private / rate-limited) — try the next one.
+      }
     }
+    return undefined;
   }
 
   async postReview(

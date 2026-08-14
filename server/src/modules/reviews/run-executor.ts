@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Container } from '../../platform/container.js';
 import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
 import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
@@ -8,6 +9,8 @@ import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './reposit
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
+import { deriveIntent } from './intent/service.js';
+import { renderIntentBlock } from './intent/render.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -59,6 +62,13 @@ export class ReviewRunExecutor {
     jobs: { agent: AgentRow; runId: string; skipSkills?: boolean }[],
     logger?: Logger,
   ): Promise<void> {
+    // One id for the WHOLE batch: the shared pre-work (diff load, intent
+    // classification) plus every agent's review call. It rides on the RunLogger
+    // context, so it lands on every stdout line, every SSE event and every
+    // persisted trace line without each call site remembering to add it — which
+    // is what makes "show me every LLM call for this PR review" one grep.
+    const correlationId = randomUUID().slice(0, 8);
+
     // ONE logger fanned out over every queued run: shared pre-work (diff +
     // intent) is streamed into each target agent's Live Log and persisted into
     // each run's trace. Per-agent work below narrows it to a single run.
@@ -66,7 +76,7 @@ export class ReviewRunExecutor {
       this.container.runBus,
       jobs.map((j) => j.runId),
       logger,
-      { prId: pull.id },
+      { prId: pull.id, correlationId },
     );
 
     // Pre-work failure (e.g. diff load) fails EVERY queued run. The error was
@@ -104,6 +114,48 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // ---- Derive the PR intent ONCE for the whole batch ---------------------
+    // Outside the per-agent loop on purpose: one classification serves every
+    // queued run, so a 3-agent fan-out still shows exactly one intent [tool]
+    // line and is billed for exactly one call. The cost is stored on `pr_intent`
+    // and deliberately NOT added into any run's `costUsd` (see completeAgentRun
+    // below) — otherwise a fan-out would triple-count one call.
+    //
+    // Failure degrades to "no intent section", exactly like buildRepoMapDigest
+    // returning undefined. It must NOT go through `failAll`: that path exists
+    // for the diff load, without which there is nothing to review at all.
+    let intentBlock: string | undefined;
+    try {
+      const { row, cached } = await runLog.step(
+        'Deriving PR intent',
+        () =>
+          deriveIntent({
+            container: this.container,
+            repo: this.repo,
+            repoRow: repo,
+            pull,
+            diff,
+            workspaceId,
+            runLog,
+            correlationId,
+          }),
+        { kind: 'tool' },
+      );
+      const block = renderIntentBlock({
+        intent: row.intent,
+        in_scope: row.inScope,
+        out_of_scope: row.outOfScope,
+        risk_areas: row.riskAreas,
+        confidence: row.confidence,
+      });
+      intentBlock = block.trim().length > 0 ? block : undefined;
+      if (!intentBlock) runLog.info('intent: derived block was empty — skipping the prompt section');
+      else if (cached) runLog.info('intent: attached to the review prompt (from cache)');
+      else runLog.info('intent: attached to the review prompt');
+    } catch (err) {
+      runLog.info(`intent: ${(err as Error).message} — skipping`);
+    }
+
     for (const { agent, runId, skipSkills } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -111,7 +163,18 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, skipSkills);
+        const outcome = await this.runOneAgent(
+          workspaceId,
+          pull,
+          repo,
+          diff,
+          agent,
+          runId,
+          correlationId,
+          runLog,
+          intentBlock,
+          skipSkills,
+        );
         logger?.info(
           {
             runId,
@@ -142,7 +205,12 @@ export class ReviewRunExecutor {
     diff: UnifiedDiff,
     agent: AgentRow,
     runId: string,
+    /** Batch-wide id shared with the intent classifier call — see `executeRuns`. */
+    correlationId: string,
     parentLog: RunLogger,
+    /** Rendered ONCE for the whole batch by `executeRuns` — never re-derived
+     *  per agent. Undefined when the derivation was skipped or failed. */
+    intentBlock: string | undefined,
     skipSkills?: boolean,
   ): Promise<RunOutcome> {
     const start = Date.now();
@@ -221,8 +289,19 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // Derived intent — untrusted (a pure function of author-controlled
+        // text); assemblePrompt wraps it and the trusted system message carries
+        // the rule for reading it. Same omit-when-absent contract.
+        ...(intentBlock ? { intent: intentBlock } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
+        // Observability only — none of these three change the prompt or the
+        // model's input. `countTokens` turns the manifest's `chars` into real
+        // token counts; `verbosePromptLog` adds a per-section digest and is
+        // hard-gated off in production by `loadConfig`.
+        correlationId,
+        countTokens: (t) => this.container.tokenizer.count(t),
+        verbosePromptLog: this.container.config.promptLogVerbose,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
         checkCancelled: () => {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();

@@ -16,6 +16,31 @@ move it into `docs/` and delete it here.
 
 ## Decisions
 
+### 2026-08-09 — planner → implementer hand off through a file, never through the conversation
+
+**What:** `.claude/agents/planner.md` writes a plan to `.claude/plans/` (gitignored)
+and `.claude/agents/implementer.md` reads it back; the plan's "Steps → Files" list
+is the implementer's scope boundary and its "Skills contract" table is the binding
+list of skills it may load. The implementer archives the plan to
+`.claude/plans/archive/` with `Status: implemented` on a fully green run (kept in
+place as `Status: blocked` otherwise), so a later `plan-verifier` run can still
+read the requirement list.
+**Why:** a non-fork subagent starts with the full `CLAUDE.md` hierarchy and a git
+status snapshot but **no conversation history** — anything agreed while planning is
+invisible to the next agent, so a conversational handoff loses exactly the
+constraints that made the plan correct.
+**Rejected:** returning the plan as report text for the caller to relay (lossy, and
+truncates on long plans); committing plans to git (churn in every PR diff, and
+`pr-self-review` then has to classify them).
+**Cost:** the plan file is now a third place a design can be stale. Keep it out of
+the working set — that is what the archive-on-success rule is for, and
+`.claude/plans/` is gitignored as a directory, so `archive/` stays out of git with
+no extra rule. Note that the popular
+claim "planner/implementer role-splitting is an official Anthropic anti-pattern"
+has **no primary source**; it is absent from
+`https://code.claude.com/docs/en/best-practices`, which documents plan-then-
+implement plus a fresh-context reviewer. Don't dismantle this pair citing it.
+
 ### 2026-08-04 — Skills reach the prompt un-delimited; the `enabled` toggle is the trust gate, not `wrapUntrusted()`
 
 **What:** `reviewer-core/src/prompt.ts` wraps every other external input
@@ -141,6 +166,26 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-09** — With the roster at seven agents, `description` being the *sole*
+  auto-delegation signal stopped being trivia and became the main failure mode:
+  `test-writer` collides with `implementer` (which also writes tests), and
+  `plan-verifier` / `architecture-reviewer` collide with the `pr-self-review` skill,
+  `/code-review` and `/security-review`. Two conventions now carry that load and a
+  new agent must satisfy both — a row in the `## Choosing between the review agents`
+  table in `.claude/agents/README.md`, and an explicit "does **not** …" sentence
+  closing the agent's own Responsibility paragraph naming the sibling that owns what
+  it declines. An agent added without those is not mis-configured, it is
+  mis-*routed*, which shows up as the wrong agent silently answering.
+
+- **2026-08-09** — This repo's path→skill routing table and its per-package
+  typecheck/test command table live in `.claude/skills/pr-self-review/SKILL.md`
+  Steps 2, 3 and 4, and are the single source of truth for both. `planner.md` and
+  `implementer.md` are written to `Read` those sections rather than carry their own
+  copy — three copies of the `vendor/shared` mirror rule or the
+  `pnpm` vs `npm` split would drift silently and only surface as an agent running
+  the wrong command in the wrong package. Any new agent or skill that needs "which
+  skills apply to this diff" points at those sections too.
+
 - **2026-08-03** — `.claude/skills/next-best-practices/` covers Next.js App
   Router *routing mechanics only* — the special-file table, `[slug]` /
   `[...slug]` / `[[...slug]]` syntax, `@slot` parallel routes, `(.)`/`(..)`
@@ -165,7 +210,33 @@ _None yet._
   calls** — wire up the existing field, never add a pricing lookup or a second
   request. `reviewer-core/src/review/run.ts:216`
 
+- **2026-08-10** — adding a field to a `@devdigest/shared` Zod object that
+  already has passing fixture-parse tests requires `.default(...)`, not a bare
+  type. Smart Diff's `findings: z.array(SmartDiffFinding).default([])` on
+  `SmartDiffFile` (`server/src/vendor/shared/contracts/brief.ts:142` + client
+  mirror) is what let `server/test/contracts.test.ts:108`'s pre-existing fixture
+  (written before the field existed) keep parsing unchanged — a required field
+  would have broken that test the moment the schema changed, even though no
+  test file was touched. Any additive field on an already-fixture-tested
+  contract needs the same treatment.
+
 ## Tool & Library Notes
+
+- **2026-08-09** — A Claude Code subagent can only invoke a skill if `Skill` is in
+  its frontmatter `tools:` allowlist, and it fails **silently** — the agent simply
+  never reaches the catalog, with no error to notice. Omitting `tools:` entirely
+  inherits every tool (including `Skill`); the moment you write an allowlist you
+  have opted out of that. `.claude/agents/researcher.md:11` lists
+  `Read, Grep, Glob, Bash, WebSearch, WebFetch` and therefore cannot use any of the
+  15 skills in `.claude/skills/` — fine for a read-only investigator, but check this
+  first whenever an agent "ignores" a skill. The separate `skills:` frontmatter
+  field is not the fix: it *preloads* skill bodies at startup and costs context
+  whether or not they apply. `https://code.claude.com/docs/en/sub-agents`
+  **The converse is also a design lever, so don't "fix" every missing `Skill`:**
+  `.claude/agents/plan-verifier.md:12` omits it deliberately, because its rubric is
+  the plan file and loading any construction or review skill is exactly what drags a
+  spec-conformance checker into the generic advice it exists not to give. An agent
+  that omits `Skill` on purpose says so in its body — check there before adding it.
 
 - **2026-08-03** — `git diff` and `git diff --cached` never show untracked
   files — only tracked-file changes. Any tool that needs "all local changes

@@ -22,6 +22,30 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 
+## Agents
+
+Subagents live in `.claude/agents/` and are invoked via the Task tool. Full cards —
+responsibilities, permissions, input/output artifacts and the sources each agent's rules
+come from — are in [`../agents/README.md`](../agents/README.md).
+
+| Agent | Model | Description |
+|-------|-------|-------------|
+| [researcher](../agents/researcher.md) | Sonnet | Read-only repo + web research; returns a structured report with conclusions, justifications, links and an explicit "could not find" list |
+| [planner](../agents/planner.md) | Opus | Turns a request into a step-by-step plan file under `.claude/plans/`; binds the exact files to touch and the skills the implementer must load |
+| [implementer](../agents/implementer.md) | Inherit | Executes an approved plan across backend and frontend, loads the plan's bound skills, edits only listed files, runs scoped typecheck + tests. Never commits, never reviews |
+| [test-writer](../agents/test-writer.md) | Inherit | Writes and repairs tests in `client/` (Vitest + RTL) and `server/` (hermetic vs DB-backed lanes), following `TESTING.md`'s typological philosophy. Edits test files only — a needed source change is reported, not made |
+| [plan-verifier](../agents/plan-verifier.md) | Sonnet | Audits an implemented change against one plan file, requirement by requirement, with `path:line` evidence and one of four verdicts per row. Refuses to run without a plan; never reviews quality |
+| [architecture-reviewer](../agents/architecture-reviewer.md) | Opus | Boundary review only — backend rings in `server/`, placement in `client/` — returning severity-labelled findings with the rule each breaks. Read-only: describes a fix, never applies one |
+| [document-writer](../agents/document-writer.md) | Inherit | Turns a change, plan or notes into docs that land in the right file (package README, `docs/`, `specs/`) per each directory's own rules, with Mermaid where it earns its place. Writes `*.md` only |
+
+`planner` → `implementer` is a handoff pair: the plan file is the contract, since a
+subagent inherits no conversation history. Plans live in `.claude/plans/` (gitignored). The
+implementer **archives** the plan to `.claude/plans/archive/` with `Status: implemented` on
+a fully green run, or keeps it in place as `Status: blocked` otherwise; `plan-verifier`
+reads it from either location. `planner`, `implementer` and `architecture-reviewer` all
+source their path→skill routing and per-package test commands from
+[pr-self-review](pr-self-review/SKILL.md) Steps 2–4 rather than carrying their own copy.
+
 ## What Are Skills?
 
 Skills are modular packages that extend the AI agent with specialized knowledge and workflows. Unlike rules (always applied) or agents (invoked for specific tasks), skills are loaded on-demand when the agent determines they're relevant.

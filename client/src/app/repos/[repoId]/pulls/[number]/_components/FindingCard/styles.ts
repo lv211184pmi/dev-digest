@@ -4,10 +4,17 @@ import type { CSSProperties } from "react";
 export const s = {
   card: (focused: boolean, sevColor: string, muted: boolean): CSSProperties => ({
     borderRadius: 8,
-    // All-longhand (never mix `border` shorthand with `borderLeft` — React warns
-    // about updating shorthand + non-shorthand on the same rerender).
+    // All-longhand (never mix `border`/`borderColor` shorthand with
+    // `borderLeftColor` — React warns about updating a shorthand and a
+    // non-shorthand property for the same value on the same rerender, which
+    // is exactly what `borderColor` + `borderLeftColor` together do. This
+    // only ever fires a warning once `focused` actually changes on an
+    // already-mounted card, e.g. re-targeting a finding without a remount —
+    // see FindingsPanel's `targetFindingNonce`.
     borderStyle: "solid",
-    borderColor: focused ? sevColor : "var(--border)",
+    borderTopColor: focused ? sevColor : "var(--border)",
+    borderRightColor: focused ? sevColor : "var(--border)",
+    borderBottomColor: focused ? sevColor : "var(--border)",
     borderWidth: 1,
     borderLeftWidth: 3,
     borderLeftColor: sevColor,

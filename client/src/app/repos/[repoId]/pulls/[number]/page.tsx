@@ -17,7 +17,14 @@ import { DiffTab } from "./_components/DiffTab";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
 import { usePullDetail, usePulls } from "@/lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "@/lib/hooks/reviews";
+import {
+  usePrReviews,
+  useCancelRun,
+  usePrActiveRuns,
+  usePrRuns,
+  useDeleteRun,
+  invalidateReviewsAndSmartDiff,
+} from "@/lib/hooks/reviews";
 import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
 import { ApiError } from "@/lib/api";
 import { githubPrUrl } from "@/lib/github-urls";
@@ -66,6 +73,19 @@ export default function PRDetailPage() {
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
+
+  // Files changed → Agent runs: clicking a Smart Diff line's severity tag
+  // switches tab and hands FindingsTab the exact finding to open + scroll to.
+  // Kept as component state (not a URL param) — same pattern as the
+  // Timeline→"go to review" jump inside FindingsTab itself. The nonce isn't
+  // strictly needed today (FindingsTab unmounts on every tab switch, so a
+  // fresh mount always sees the latest id), but it's cheap insurance if that
+  // ever changes.
+  const [findingTarget, setFindingTarget] = React.useState<{ id: string; n: number } | null>(null);
+  const openFinding = (findingId: string) => {
+    setFindingTarget((p) => ({ id: findingId, n: (p?.n ?? 0) + 1 }));
+    setTab("findings");
+  };
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -134,7 +154,9 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && (
+          <OverviewTab prBody={pr.body} prId={prId} headSha={pr.head_sha} />
+        )}
 
         {tab === "findings" && (
           <FindingsTab
@@ -148,6 +170,8 @@ export default function PRDetailPage() {
             repoFullName={repoFullName}
             headSha={pr.head_sha}
             cancelMutation={cancel}
+            targetFindingId={findingTarget?.id ?? null}
+            targetFindingNonce={findingTarget?.n ?? 0}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
               if (window.confirm("Delete this run from history? (its logs are removed too)"))
@@ -157,6 +181,7 @@ export default function PRDetailPage() {
               invalidateActiveRuns();
               invalidateRunHistory();
               refetchReviews();
+              invalidateReviewsAndSmartDiff(qc, prId);
             }}
           />
         )}
@@ -167,6 +192,7 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            onOpenFinding={openFinding}
           />
         )}
       </div>

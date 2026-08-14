@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../../../db/client.js';
 import * as t from '../../../db/schema.js';
-import type { Intent } from '@devdigest/shared';
+import type { Intent, IntentConfidence, IntentSource } from '@devdigest/shared';
 import type { PullRow } from '../../../db/rows.js';
 
 // ---- PR lookup (workspace-scoped) -----------------------------------------
@@ -46,23 +46,52 @@ export async function markReviewed(db: Db, prId: string, sha: string): Promise<v
 
 // ---- intent ---------------------------------------------------------------
 
-export async function upsertIntent(db: Db, prId: string, intent: Intent): Promise<void> {
-  await db
-    .insert(t.prIntent)
-    .values({
-      prId,
-      intent: intent.intent,
-      inScope: intent.in_scope,
-      outOfScope: intent.out_of_scope,
-    })
-    .onConflictDoUpdate({
-      target: t.prIntent.prId,
-      set: { intent: intent.intent, inScope: intent.in_scope, outOfScope: intent.out_of_scope },
-    });
+/** The stored `pr_intent` row. Never crosses out of the reviews module — the
+ *  route returns `PrIntentRecord`, a DTO built in `service.ts`. */
+export type PrIntentRow = typeof t.prIntent.$inferSelect;
+
+/** Everything a derivation produces, minus `derivedAt` (set here, on write). */
+export interface IntentWrite {
+  intent: Intent;
+  confidence: IntentConfidence;
+  sources: IntentSource[];
+  headSha: string | null;
+  sourcesHash: string | null;
+  provider: string | null;
+  model: string | null;
+  costUsd: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
 }
 
-export async function getIntent(db: Db, prId: string): Promise<Intent | undefined> {
+export async function upsertIntent(db: Db, prId: string, record: IntentWrite): Promise<void> {
+  const columns = {
+    intent: record.intent.intent,
+    inScope: record.intent.in_scope,
+    outOfScope: record.intent.out_of_scope,
+    riskAreas: record.intent.risk_areas,
+    confidence: record.confidence,
+    sources: record.sources,
+    headSha: record.headSha,
+    sourcesHash: record.sourcesHash,
+    provider: record.provider,
+    model: record.model,
+    costUsd: record.costUsd,
+    tokensIn: record.tokensIn,
+    tokensOut: record.tokensOut,
+    derivedAt: new Date(),
+  };
+  await db
+    .insert(t.prIntent)
+    .values({ prId, ...columns })
+    .onConflictDoUpdate({ target: t.prIntent.prId, set: columns });
+}
+
+/**
+ * The raw row, not a mapped `Intent`: the caller needs `headSha`/`sourcesHash`
+ * for the cache check and the whole row for the DTO.
+ */
+export async function getIntent(db: Db, prId: string): Promise<PrIntentRow | undefined> {
   const [row] = await db.select().from(t.prIntent).where(eq(t.prIntent.prId, prId));
-  if (!row) return undefined;
-  return { intent: row.intent, in_scope: row.inScope, out_of_scope: row.outOfScope };
+  return row;
 }

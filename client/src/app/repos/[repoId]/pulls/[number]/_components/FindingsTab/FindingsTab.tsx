@@ -22,6 +22,11 @@ interface FindingsTabProps {
   /** owner/repo + head sha — used to deep-link a finding's file:line to GitHub. */
   repoFullName?: string | null;
   headSha?: string | null;
+  /** A finding to open + scroll to, handed down from Files changed (see
+      SmartDiffViewer's severity tag). Bumping the nonce re-triggers the jump
+      even when the same finding is targeted twice. */
+  targetFindingId?: string | null;
+  targetFindingNonce?: number;
   onOpenTrace: (id: string) => void;
   onDelete: (id: string) => void;
   onRunDone: () => void;
@@ -38,6 +43,8 @@ export function FindingsTab({
   cancelMutation,
   repoFullName,
   headSha,
+  targetFindingId = null,
+  targetFindingNonce = 0,
   onOpenTrace,
   onDelete,
   onRunDone,
@@ -71,11 +78,20 @@ export function FindingsTab({
 
   // Timeline → Review-runs navigation: clicking an agent name in the timeline
   // opens + scrolls to that run's accordion below. The nonce re-triggers the
-  // scroll even when the same run is clicked twice.
+  // scroll even when the same run is clicked twice. Files changed → Agent
+  // runs reuses the exact same mechanism: resolve the run that produced
+  // `targetFindingId` and open it the same way a timeline click would.
   const [target, setTarget] = React.useState<{ runId: string; n: number } | null>(null);
   const handleGoToReview = useCallback((runId: string) => {
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
+
+  React.useEffect(() => {
+    if (!targetFindingId) return;
+    const review = runs.find((r) => r.findings.some((f) => f.id === targetFindingId));
+    if (review?.run_id) handleGoToReview(review.run_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetFindingId, targetFindingNonce]);
 
   return (
     <section>
@@ -173,6 +189,8 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            targetFindingId={targetFindingId}
+            targetFindingNonce={targetFindingNonce}
           />
         ))
       )}

@@ -26,6 +26,11 @@ const EnvSchema = z.object({
   // Note: even when on, sections only populate once the repo is indexed; an
   // unindexed repo degrades gracefully. Per-agent override: agents.repo_intel.
   REPO_INTEL_ENABLED: z.string().optional(),
+  // Verbose prompt-assembly logging. Adds a short one-way content DIGEST per
+  // prompt section; it never adds content, so it cannot leak a diff, a spec or
+  // a secret. Local/dev only — `loadConfig` hard-gates it off in production
+  // regardless of this value (see `promptLogVerbose` below).
+  PROMPT_LOG_VERBOSE: z.string().optional(),
   API_PORT: z.coerce.number().int().default(3001),
   WEB_PORT: z.coerce.number().int().default(3000),
   DEVDIGEST_CLONE_DIR: z.string().optional(),
@@ -59,6 +64,14 @@ export type AppConfig = {
    * EXACTLY like the ripgrep-only baseline.
    */
   repoIntelEnabled: boolean;
+  /**
+   * Verbose prompt-assembly logging (adds a per-section content digest to the
+   * manifest; never content). ALWAYS false in production: the env var is
+   * necessary but not sufficient, so a stray `PROMPT_LOG_VERBOSE=true` in a
+   * deployed environment is inert rather than a data-exposure change. Flip it
+   * locally with `PROMPT_LOG_VERBOSE=true` in `server/.env`.
+   */
+  promptLogVerbose: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -77,5 +90,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,
     embeddingsEnabled: parsed.EMBEDDINGS_ENABLED === 'true',
     repoIntelEnabled: parsed.REPO_INTEL_ENABLED !== 'false',
+    // Two conditions, not one: opting in AND not being in production. The
+    // second is the safety property — it makes "verbose logging got left on in
+    // prod" unreachable through configuration alone.
+    promptLogVerbose:
+      parsed.PROMPT_LOG_VERBOSE === 'true' && parsed.NODE_ENV !== 'production',
   };
 }

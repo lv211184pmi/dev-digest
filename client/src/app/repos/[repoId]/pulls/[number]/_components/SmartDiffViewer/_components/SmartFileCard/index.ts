@@ -1,0 +1,1 @@
+export { SmartFileCard } from "./SmartFileCard";

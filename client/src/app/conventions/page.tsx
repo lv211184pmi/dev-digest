@@ -1,19 +1,8 @@
-"use client";
+import { ConventionsView } from "./_components/ConventionsView";
 
-import { useTranslations } from "next-intl";
-import { FeaturePlaceholder } from "@/components/feature-placeholder";
-
-/* Route: /conventions — placeholder. A later lesson scans the repo for
-   house-rules and lets you turn each into a Skill. */
+/* Route: /conventions — scan the active repo for house-rules, back each with
+   evidence, and merge the accepted set into a Skill. Thin route entry — the
+   view is colocated under _components/ConventionsView. */
 export default function ConventionsPage() {
-  const t = useTranslations("conventions");
-  return (
-    <FeaturePlaceholder
-      crumb={[{ label: "Skills Lab" }, { label: "Conventions" }]}
-      icon="ListChecks"
-      title="Conventions"
-      owner="a later lesson"
-      body={t("page.subtitle")}
-    />
-  );
+  return <ConventionsView />;
 }

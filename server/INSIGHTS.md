@@ -51,6 +51,22 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-05** — a job handler that makes a paid LLM call must never let its
+  promise reject, or `JobRunner` (`platform/jobs.ts`) retries it up to 3x
+  (`retries: 2` default, no per-job timeout override) — one failure becomes up
+  to 3 paid model calls. Pattern used in
+  `modules/conventions/infrastructure/http/routes.ts`'s job registration: wrap
+  the use-case call in try/catch and call a `failRun`-style persistence method
+  in the catch block, never rethrowing, so the `jobs` row ends `done` while
+  the domain's own status column (e.g. `convention_runs.status`) says
+  `failed`. That mismatch between the two tables is intentional — comment it
+  at the call site, or the next reader "fixes" it by removing the try/catch
+  and silently reintroduces 3x spend. Also set `timeoutMs` on the
+  `StructuredRequest` itself (e.g. 90s) so the LLM call fails with a clear
+  message before `JobRunner`'s own 120s hard timeout fires first. Verified by
+  `test/conventions-extract.test.ts`'s anti-retry assertion (exactly one
+  `completeStructured` call after a throwing model). This will bite the next
+  LLM-backed job too — check for it before adding one.
 - **2026-08-04** — a feature's CRUD layer having its own `*.it.test.ts` does
   not mean its runtime *effect* is tested. `test/skills.it.test.ts` covered
   skill CRUD, versioning, and the `agent_skills` link/reorder round trip
@@ -74,7 +90,11 @@ _None yet._
   `repos/service.ts:36`, `agents/service.ts:55`. The `onion-architecture` skill
   (`.claude/skills/onion-architecture/`) documents the intended layering and a
   strangler backlog for the four non-conforming modules — read it before adding
-  a new module or touching one of the four.
+  a new module or touching one of the four. `modules/conventions/` (added
+  2026-08-05) is this repo's first module actually built with the real
+  `domain-model/domain-services/application-services/infrastructure` folders
+  from day one — a concrete worked example beyond the skill's own docs when
+  starting the strangler work on `pulls`/`polling`/`settings`/`workspace`.
 - **2026-08-03** — `grep -rn "\.transaction(" server/src` returns zero hits.
   Multi-statement writes are non-atomic and this is nowhere recorded as a
   deliberate choice — e.g. `pulls/routes.ts:251-265` deletes then re-inserts

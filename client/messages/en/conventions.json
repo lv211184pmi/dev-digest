@@ -5,22 +5,70 @@
     "headingPrefix": "Conventions in ",
     "repoFallback": "repo",
     "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
+    "subtitleDetected": "Detected from {count} sample files · last scan {ago}",
     "scanning": "Scanning…",
     "rescan": "Re-scan",
     "runExtraction": "Run extraction",
     "extractionFailed": "Extraction failed",
+    "neverScanned": "Not scanned yet",
+    "notIndexed": "This repo hasn't been indexed yet. Index it first, then re-scan for conventions.",
     "loadError": "Could not load conventions.",
     "empty": {
       "title": "No conventions extracted yet",
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
     },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files",
+    "noRepo": {
+      "title": "No repo selected",
+      "body": "Add or pick a repo to scan it for conventions.",
+      "cta": "Go to onboarding"
+    }
+  },
+  "toolbar": {
+    "deselectAll": "Deselect all",
+    "selectAll": "Select all",
+    "acceptedCount": "{accepted} of {total} accepted",
+    "createSkill": "Create skill",
+    "noneAccepted": "Accept at least one candidate to create a skill",
+    "skillCreated": "Skill created"
   },
   "card": {
     "confidence": "Confidence",
     "accepted": "Accepted",
     "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "acceptAsSkill": "Accept as Skill",
+    "reject": "Reject",
+    "edit": "Edit",
+    "saveEdit": "Save",
+    "cancelEdit": "Cancel",
+    "rulePlaceholder": "Describe the convention…",
+    "copyEvidence": "Copy evidence",
+    "copied": "Copied",
+    "category": {
+      "naming": "Naming",
+      "structure": "Structure",
+      "error_handling": "Error handling",
+      "testing": "Testing",
+      "typing": "Typing",
+      "imports": "Imports",
+      "logging": "Logging",
+      "api_design": "API design",
+      "other": "Other"
+    }
+  },
+  "modal": {
+    "title": "Create conventions skill",
+    "banner": "Review the merged rules below before saving — this is the only vetting step before the skill can reach an agent's prompt.",
+    "nameLabel": "Name",
+    "descriptionLabel": "Description",
+    "typeLabel": "Type",
+    "enabledLabel": "Enabled",
+    "enabledHint": "Linked agents include this skill's rules in their prompt immediately.",
+    "bodyLabel": "Skill body",
+    "tokenCount": "{count} tokens",
+    "footerNote": "Evidence lives on each card, not in the skill body — no raw code is included.",
+    "create": "Create skill",
+    "creating": "Creating…"
   }
 }

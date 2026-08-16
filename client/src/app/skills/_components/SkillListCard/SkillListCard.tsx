@@ -51,7 +51,7 @@ export function SkillListCard({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (window.confirm(`Delete skill "${skill.name}"? This cannot be undone.`)) del.mutate(skill.id);
+            if (window.confirm(t("card.confirmDelete", { name: skill.name }))) del.mutate(skill.id);
           }}
           disabled={del.isPending}
           title="Delete skill"

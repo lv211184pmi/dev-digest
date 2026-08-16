@@ -84,7 +84,7 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
   });
 
   app.post('/agents', { schema: { body: CreateAgentBody } }, async (req, reply) => {
-    const { workspaceId, userId } = await getContext(app.container, req);
+    const { workspaceId, userId, requestId } = await getContext(app.container, req);
     const body = req.body;
     const agent = await service.create(
       workspaceId,
@@ -102,6 +102,7 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
       },
       userId,
     );
+    req.log.info({ requestId, agentId: agent.id }, 'agent created');
     reply.status(201);
     return agent;
   });

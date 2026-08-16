@@ -29,6 +29,8 @@ import type {
   BlastChangedSymbol,
   BlastResult,
   FileRankRow,
+  ImpactedFileRow,
+  ImpactedFilesResult,
   IndexResult,
   IndexState,
   RefRow,
@@ -213,20 +215,30 @@ export class RepoIntelService implements RepoIntel {
    * clone (not the index). T2 promotes this path to the persistent layer.
    */
   async getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult> {
-    // T3: serve from the persistent index when it's built. Falls through to the
-    // ripgrep best-effort below when the flag is off / index is absent.
-    if (this.container.config.repoIntelEnabled && changedFiles.length > 0) {
-      const persistent = await this.tryPersistentBlast(repoId, changedFiles);
-      if (persistent) return persistent;
-    }
-
     const empty: BlastResult = {
       changedSymbols: [],
       callers: [],
       impactedEndpoints: [],
+      impactedCrons: [],
       degraded: true,
       reason: 'no_data',
     };
+
+    // Flag off => degrade, never scan. Without this guard the method fell through
+    // to the ripgrep full-tree walk below *precisely when the feature flag said
+    // not to*, unlike every sibling read (getRepoMap / getFileRank /
+    // getCallerSignatures all bail here). See INSIGHTS.md — the 2026-08-11 fix
+    // gave the siblings this guard and missed this one.
+    if (!this.container.config.repoIntelEnabled) {
+      return { ...empty, reason: 'flag_off' };
+    }
+
+    // T3: serve from the persistent index when it's built. Falls through to the
+    // ripgrep best-effort below when the index is absent.
+    if (changedFiles.length > 0) {
+      const persistent = await this.tryPersistentBlast(repoId, changedFiles);
+      if (persistent) return persistent;
+    }
 
     const repo = await this.repo.getRepoBasics(repoId);
     if (!repo || !repo.clonePath || changedFiles.length === 0) return empty;
@@ -249,7 +261,7 @@ export class RepoIntelService implements RepoIntel {
       const key = `${s.name}:${s.path}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      changedSymbols.push({ file: s.path, name: s.name, kind: s.kind });
+      changedSymbols.push({ file: s.path, name: s.name, kind: s.kind, line: s.line });
     }
 
     const callerRows: BlastCallerRow[] = [];
@@ -293,6 +305,10 @@ export class RepoIntelService implements RepoIntel {
       changedSymbols,
       callers: callerRows,
       impactedEndpoints: [...endpoints],
+      // The ripgrep path reads endpoints out of file contents and has no cron
+      // extraction at all — an empty list here is a real "unknown", which the
+      // `degraded` flag alongside it is what makes honest.
+      impactedCrons: [],
       degraded: true,
       reason: 'no_data',
     };
@@ -325,12 +341,18 @@ export class RepoIntelService implements RepoIntel {
       const key = `${s.name}:${s.path}`;
       if (!seenSym.has(key)) {
         seenSym.add(key);
-        changedSymbols.push({ file: s.path, name: s.name, kind: s.kind });
+        changedSymbols.push({ file: s.path, name: s.name, kind: s.kind, line: s.line ?? 0 });
       }
       nameSet.add(s.name);
     }
     if (nameSet.size === 0) {
-      return { changedSymbols, callers: [], impactedEndpoints: [], degraded: false };
+      return {
+        changedSymbols,
+        callers: [],
+        impactedEndpoints: [],
+        impactedCrons: [],
+        degraded: false,
+      };
     }
 
     // Resolved cross-file callers.
@@ -364,25 +386,124 @@ export class RepoIntelService implements RepoIntel {
         rank: c.rank,
       });
     }
-    callers.sort((a, b) => b.rank - a.rank);
+    // Grouped by changed symbol and rank-sorted within each group, but NOT
+    // capped. `file` then `line` are a deterministic tiebreak, so a rank tie can
+    // never reorder the output between two identical requests — the blast facts
+    // hash depends on this being stable.
+    //
+    // WHY THE CAP IS NOT APPLIED HERE, despite MAX_CALLERS_PER_SYMBOL living in
+    // this module's constants. It used to be, and it made the facade lie twice
+    // over: a consumer receiving a silently truncated list cannot report a true
+    // `caller_count` (it never sees one), and it cannot attribute endpoints from
+    // the callers it was not given — so an endpoint reachable only via caller
+    // #21 of a symbol vanished from that symbol's chips while still appearing in
+    // the repo-wide totals. Truncation is a presentation rule, so it belongs to
+    // the one ring that renders: `blast/domain-services/assemble.ts` groups,
+    // counts, then slices, and is the single owner. A facade whose job is to say
+    // what the index knows must not quietly drop part of the answer — that is
+    // the exact failure mode this whole feature exists to prevent.
+    //
+    // Cost of returning everything: none beyond what was already paid.
+    // `getResolvedCallers` has no LIMIT, so every row was already materialised
+    // here; the old `slice` discarded them in JS rather than saving a fetch.
+    const byViaSymbol = new Map<string, BlastCallerRow[]>();
+    for (const c of callers) {
+      const arr = byViaSymbol.get(c.viaSymbol);
+      if (arr) arr.push(c);
+      else byViaSymbol.set(c.viaSymbol, [c]);
+    }
+    const ordered: BlastCallerRow[] = [];
+    for (const group of byViaSymbol.values()) {
+      group.sort(
+        (a, b) => b.rank - a.rank || a.file.localeCompare(b.file) || a.line - b.line,
+      );
+      ordered.push(...group);
+    }
 
     // Precomputed facts per caller file (endpoints + crons), so consumers can
     // attribute them to the changed symbol whose callers live in that file.
     const facts = await this.repo.getFileFacts(repoId, callerFiles);
     const endpoints = new Set<string>();
+    const crons = new Set<string>();
     const factsByFile: Record<string, { endpoints: string[]; crons: string[] }> = {};
     for (const f of facts) {
       factsByFile[f.filePath] = { endpoints: f.endpoints, crons: f.crons };
       for (const e of f.endpoints) endpoints.add(e);
+      for (const c of f.crons) crons.add(c);
     }
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
+      callers: ordered,
       impactedEndpoints: [...endpoints],
+      impactedCrons: [...crons],
       factsByFile,
       degraded: false,
     };
+  }
+
+  /**
+   * "What sits downstream of these changed files?" — a REVERSE breadth-first walk
+   * of `file_edges` to depth `BFS_DEPTH`, joined against `file_facts`.
+   *
+   * Persistent index only, gated exactly like `getCallerSignatures`: this must
+   * never reach `container.codeIndex`, whose `.symbols()`/`.references()` walk the
+   * entire clone per call (INSIGHTS.md). A repo with no usable index degrades to
+   * `{files: [], degraded: true, reason}` — and the reason is what lets the caller
+   * explain itself instead of rendering an empty list as "nothing is impacted".
+   *
+   * Two batched `getImporters` rounds, not one query per file: level 1 is "who
+   * imports a changed file", level 2 is "who imports one of those", with the
+   * changed files and everything already seen excluded so a cycle (A→B→A) can
+   * never revisit a node.
+   */
+  async getImpactedFiles(repoId: string, changedFiles: string[]): Promise<ImpactedFilesResult> {
+    if (!this.container.config.repoIntelEnabled) {
+      return { files: [], degraded: true, reason: 'flag_off' };
+    }
+    if (changedFiles.length === 0) return { files: [], degraded: false };
+
+    const state = await this.repo.tryGetIndexState(repoId);
+    if (!state || (state.status !== 'full' && state.status !== 'partial')) {
+      return { files: [], degraded: true, reason: state ? 'index_partial' : 'no_data' };
+    }
+
+    // `visited` seeds with the changed files so they can never appear as their
+    // own downstream, and grows as each level is accepted.
+    const visited = new Set(changedFiles);
+    const depthByFile = new Map<string, 1 | 2>();
+    let frontier = changedFiles;
+
+    for (let depth = 1; depth <= BFS_DEPTH; depth++) {
+      if (frontier.length === 0) break;
+      const edges = await this.repo.getImporters(repoId, frontier);
+      const next: string[] = [];
+      for (const e of edges) {
+        if (visited.has(e.fromFile)) continue;
+        visited.add(e.fromFile);
+        depthByFile.set(e.fromFile, depth as 1 | 2);
+        next.push(e.fromFile);
+      }
+      frontier = next;
+    }
+
+    const impacted = [...depthByFile.keys()];
+    if (impacted.length === 0) return { files: [], degraded: false };
+
+    const facts = await this.repo.getFileFacts(repoId, impacted);
+    const factsByFile = new Map(facts.map((f) => [f.filePath, f]));
+
+    const files: ImpactedFileRow[] = impacted.map((file) => ({
+      file,
+      depth: depthByFile.get(file) ?? 1,
+      endpoints: factsByFile.get(file)?.endpoints ?? [],
+      crons: factsByFile.get(file)?.crons ?? [],
+    }));
+    // Stable order: shallower first, then alphabetical — the blast facts hash
+    // depends on this being reproducible across requests.
+    files.sort((a, b) => a.depth - b.depth || a.file.localeCompare(b.file));
+
+    return { files, degraded: false };
   }
 
   /**

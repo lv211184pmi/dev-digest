@@ -10,5 +10,11 @@ traces, rate-limit tiers.
 Not here: the API route map (that is `../README.md`), intent for unbuilt work
 (`../specs/`), rejected approaches (`../INSIGHTS.md`).
 
-`src/modules/repo-intel/` keeps its own README next to the code — link to it
-rather than copying it.
+Two modules keep their own README next to the code — link to them rather than
+copying them:
+
+- [`../src/modules/repo-intel/README.md`](../src/modules/repo-intel/README.md) —
+  the indexer pipeline and the `repoIntel.*` facade.
+- [`../src/modules/blast/README.md`](../src/modules/blast/README.md) — the PR
+  impact map: request pipeline, the four rings, and the coverage rules behind
+  `index.state`.

@@ -60,6 +60,8 @@ export const ChangedSymbol = z.object({
   name: z.string(),
   file: z.string(),
   kind: z.string(),
+  /** 1-based declaration line, for the clickable path:line. 0 = unknown. */
+  line: z.number().int().default(0),
 });
 export type ChangedSymbol = z.infer<typeof ChangedSymbol>;
 
@@ -75,15 +77,56 @@ export const DownstreamImpact = z.object({
   callers: z.array(BlastCaller),
   endpoints_affected: z.array(z.string()),
   crons_affected: z.array(z.string()),
+  /** Callers found BEFORE the 20-per-symbol cap — the UI's count must be honest. */
+  caller_count: z.number().int().default(0),
+  truncated: z.boolean().default(false),
 });
 export type DownstreamImpact = z.infer<typeof DownstreamImpact>;
+
+/** How much of this PR the index could actually see. Never omitted, never faked. */
+export const BlastIndexState = z.enum(['full', 'partial', 'unavailable']);
+export type BlastIndexState = z.infer<typeof BlastIndexState>;
+
+export const BlastIndexInfo = z.object({
+  state: BlastIndexState,
+  /** repo-intel DegradedReason, or a blast-local reason; null only when state==='full'. */
+  reason: z.string().nullable().default(null),
+  /** Server-composed sentence. MUST be non-empty whenever state !== 'full'. */
+  explanation: z.string().default(''),
+  indexed_files: z.number().int().default(0),
+  /** Changed files the index covers / does not cover. Naming the misses is the point. */
+  files_covered: z.array(z.string()).default([]),
+  files_not_covered: z.array(z.string()).default([]),
+});
+export type BlastIndexInfo = z.infer<typeof BlastIndexInfo>;
+
+export const BlastTotals = z.object({
+  symbols: z.number().int().default(0),
+  callers: z.number().int().default(0),
+  endpoints: z.number().int().default(0),
+  crons: z.number().int().default(0),
+});
+export type BlastTotals = z.infer<typeof BlastTotals>;
 
 export const BlastRadius = z.object({
   changed_symbols: z.array(ChangedSymbol),
   downstream: z.array(DownstreamImpact),
   summary: z.string(),
+  /**
+   * Defaulting an absent block to `unavailable` (never `full`) is the "do not mask
+   * missing data" rule expressed in the type: a payload that forgot to say how much
+   * the index saw is not allowed to read as a complete answer.
+   */
+  index: BlastIndexInfo.default({ state: 'unavailable' }),
+  totals: BlastTotals.default({}),
 });
 export type BlastRadius = z.infer<typeof BlastRadius>;
+
+/** The LLM's structured output. ONE field. It cannot emit a node it does not have. */
+export const BlastSummary = z.object({
+  summary: z.string().describe('1-2 sentences summarising the impact of the listed nodes.'),
+});
+export type BlastSummary = z.infer<typeof BlastSummary>;
 
 // ---- Risks ----
 export const RiskSeverity = z.enum(['high', 'medium', 'low']);

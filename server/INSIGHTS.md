@@ -126,6 +126,30 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+- **2026-08-15** — a review that returns `verdict: approve`, `score: 100`,
+  zero findings and the summary "The diff is empty" is a **false pass**, not a
+  clean PR. `loadDiff` (`src/modules/reviews/diff-loader.ts:19-29`) tries
+  `git diff base...headSha` in the clone, then falls back to reassembling
+  `pr_files.patch`, and returns an empty `UnifiedDiff` when both come up dry —
+  the agent then dutifully approves nothing. Both paths fail together for any
+  PR opened from a **fork**: the clone's refspec is
+  `+refs/heads/main:refs/remotes/origin/main` only (`POST /repos/:id/refresh`
+  does not add `refs/pull/*/head`), so the head SHA is absent
+  (`git -C server/clones/<owner>/<name> cat-file -t <headSha>` → `could not
+  get object info`), and `pr_files` is empty until something imports it.
+  Diagnose with `select count(*), count(patch) from pr_files where
+  pr_id='<uuid>'`; fix by calling `GET /pulls/:id` once, which re-imports
+  files/commits from GitHub, then re-run the agent. Neither the run nor the
+  MCP `run_agent_on_pr` response distinguishes this from a genuine approve —
+  check `additions`/`files_count` on the pull row before trusting a 100.
+- **2026-08-15** — `pulls.listFiles` in `src/adapters/github/octokit.ts:80-85`
+  is a single un-paginated call with `per_page: 100`, so any PR over 100 files
+  is silently truncated to the first 100 — the reviewer sees a partial diff and
+  says so in its summary ("not present in the provided diff") without any
+  warning that data was dropped. Observed on
+  `ai-agentic-engineering-neo/dev-digest#131`: pull row says `files_count: 424`,
+  `pr_files` holds 100 rows / 98 patches. Use `octokit.paginate` there before
+  trusting a review of a large PR.
 - **2026-08-11** — a review stuck logging `Resolving <provider> provider
   done` and nothing after (no `Prompt assembled` line) is hung inside
   `run-executor.ts`'s `buildCallersDigest`/`buildRepoMapDigest`/

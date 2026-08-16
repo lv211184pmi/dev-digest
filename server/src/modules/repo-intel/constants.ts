@@ -26,7 +26,17 @@ export const EXCLUDED_DIRS = [
 ] as const;
 
 // --- Read-time limits -------------------------------------------------------
-/** [T1] Caller fan-out cap per changed symbol (ORDER BY rank DESC LIMIT N). */
+/**
+ * [T1] Caller fan-out cap per changed symbol.
+ *
+ * Applied by the CONSUMER, not by `getBlastRadius` — see the long comment in
+ * `service.ts`'s `tryPersistentBlast`. The facade returns every resolved caller,
+ * rank-sorted within each symbol's group, so a consumer can report a true
+ * pre-cap count and attribute endpoints across all of them; whoever renders
+ * then slices to this number. `getCallerSignatures` is the exception and does
+ * apply it as a query limit, because prompt fuel has a hard token budget and no
+ * count to be honest about.
+ */
 export const MAX_CALLERS_PER_SYMBOL = 20;
 
 /**

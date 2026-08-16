@@ -24,5 +24,10 @@ test-results/
 # emdash worktree config (local)
 .emdash.json
 
+# MCP host registration (local, opt-in). Copy .mcp.json.example to .mcp.json
+# when you want a host to launch mcp/. Committing it would make every clone
+# spawn the server on session start; registering it is a per-developer choice.
+.mcp.json
+
 # planner → implementer handoff artifacts (transient; implementer deletes on success)
 .claude/plans/

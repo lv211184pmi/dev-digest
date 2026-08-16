@@ -31,7 +31,7 @@ flowchart TD
   SETTINGS["/settings/:section<br/>API keys · models"]
 
   PULLS -->|"GET /repos/:id/pulls · /repos/:id/index-state"| API
-  PR -->|"GET /pulls/:id · /reviews · /pulls/:id/comments · /pulls/:id/smart-diff<br/>POST /pulls/:id/review · /findings/:id/(accept|dismiss)"| API
+  PR -->|"GET /pulls/:id · /reviews · /pulls/:id/comments · /pulls/:id/smart-diff · /pulls/:id/blast<br/>POST /pulls/:id/review · /pulls/:id/blast · /findings/:id/(accept|dismiss)"| API
   AGENTS -->|"/agents · /agents/:id"| API
   SETTINGS -->|"/settings · /providers"| API
 ```
@@ -39,6 +39,34 @@ flowchart TD
 Cross-cutting chrome lives in `src/components/app-shell` (nav, breadcrumbs,
 `g`-then-key shortcuts). Pages are thin; feature logic sits in colocated
 `_components/<Name>/` folders, each with its own `*.test.tsx`.
+
+### Cards with two asymmetric calls
+
+`BlastRadiusCard` (PR Overview, `_components/BlastRadiusCard/`) is the pattern
+to copy when a card has a free deterministic payload and an optional paid one.
+`useBlastRadius` GETs the whole impact map on mount and costs nothing;
+`useDeriveBlastSummary` POSTs to the same path to spend one LLM call on a
+sentence, and seeds the query cache from its response instead of invalidating —
+the map in that response is identical, so a refetch would recompute the graph
+server-side for no new information.
+
+Two rules the card exists to hold, both about `index.state`
+(see [`../server/src/modules/blast/README.md`](../server/src/modules/blast/README.md)):
+
+- **`unavailable` never renders a zeroed stat row.** An empty map reads exactly
+  like "nothing depends on this", so the card shows an `EmptyState` carrying the
+  server's own explanation instead. `partial` keeps its map but wears a warning
+  badge listing `files_not_covered`.
+- **A `path:line` with no repo name or head sha renders as plain text, not a
+  link.** A URL guessed against the wrong ref opens the right file at the wrong
+  line, which is worse than no link. Links go through `githubBlobUrl` and are
+  pinned to the PR head.
+
+The Graph view builds its Mermaid source in a pure `graph.ts` with its own
+tests: node ids are generated (`n0`, `n1`, …) and never derived from a path, and
+labels are quoted with `"` escaped to `#quot;`. `MermaidDiagram` renders nothing
+on unparseable input, so an escaping bug fails silently — which is why the string
+builder is tested directly rather than through the rendered diagram.
 
 ## Testing
 

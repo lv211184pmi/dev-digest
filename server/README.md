@@ -76,6 +76,7 @@ flowchart TB
   end
   subgraph Intel["Repo intelligence"]
     repoIntel["repo-intel<br/>/repos/:id/index-state · /resync"]
+    blast["blast<br/>/pulls/:id/blast (GET·POST)"]
   end
   subgraph SkillsLab["Skills Lab"]
     skills["skills<br/>/skills · /skills/:id/versions · /skills/community"]
@@ -149,6 +150,31 @@ What the reviewer actually sends to the model is assembled in
     call). `is_stale` is derived from the stored head vs the PR's current head.
   - `POST /pulls/:id/intent` — force a re-derive. Rate-limited like the review
     trigger (10/min) because it spends money.
+
+**Blast radius** (`modules/blast/`) answers "what can this diff impact?" — the
+symbols the PR changed, who calls them, and the HTTP endpoints and cron jobs
+downstream of those callers. Every node is read from the repo-intel Postgres
+index (a reverse `file_edges` crawl of depth 2); exactly one cheap LLM call
+writes a 1-2 sentence summary **of the already-computed node list**, so the
+model can never contribute or contradict a node. The summary is cached on
+`pr_blast` keyed by `head_sha` + a hash of the nodes; the nodes themselves are
+never persisted, so a reindex cannot serve a stale map.
+
+  - `GET /pulls/:id/blast` — the full deterministic map. Returns **200 with
+    `summary: null`** when the sentence was never derived (unlike
+    `GET /pulls/:id/intent`, which 404s): the map is the product, the sentence
+    is a garnish. No LLM call.
+  - `POST /pulls/:id/blast` — force a re-derive of the summary. Rate-limited
+    10/min because it spends money.
+  - Any state that is not a real, index-backed answer sets
+    `index.state` to `partial`/`unavailable` with a **non-empty** `explanation`
+    and a `files_not_covered` list. An empty `downstream` is never presented on
+    its own, because it reads identically to "this change is safe".
+
+  The module keeps its own README next to the code —
+  [`src/modules/blast/README.md`](src/modules/blast/README.md) has the request
+  pipeline and ring diagrams, the coverage rules, and why the ripgrep full-tree
+  scan is unreachable from this route.
 
 ## Testing
 

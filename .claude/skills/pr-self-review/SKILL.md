@@ -72,6 +72,7 @@ If the union is empty, report "nothing to review" and stop — do not fabricate 
 | `.claude/skills/**`, `.claude/commands/**` | tooling | Meta/process — no domain skill in the catalog reviews skill-authoring itself; Step 3 will find no candidates. Note it as "not covered by any skill" per Edge cases, don't silently skip it as if it were prose docs. |
 | `client/src/vendor/ui/**` | client | Vendored — skip. Exception: a deliberate vendor-primitive update (rare); treat like the shared-contract row above if so. |
 | `reviewer-core/src/**` | reviewer-core | Full-stack (pure engine, consumed as source by server) |
+| `mcp/src/**`, `mcp/test/**` | mcp | stdio MCP server; consumes the API over HTTP and `@devdigest/shared` as source |
 | `e2e/**` | e2e | Testing (no LLM involved per `e2e/README.md`) |
 | any `*.ts`/`*.tsx` not covered above | — | Full-stack fallback |
 | `*.md`, `docs/**`, `specs/**`, `INSIGHTS.md`, `client/messages/**` (i18n strings) | — | Docs/content — no review skill needed, skip |
@@ -88,6 +89,7 @@ skill's own guardrail agrees the question is in scope for it.
 |---|---|
 | Frontend | `react-best-practices`, `next-best-practices`, `ui-architecture`, `react-testing-library` (if `*.test.*`/`*.spec.*`) |
 | Backend | `fastify-best-practices` (routes/plugins), `onion-architecture` (layering/imports), `drizzle-orm-patterns` + `postgresql-table-design` (schema/queries/migrations) |
+| mcp (`mcp/**`) | `zod` (tool schemas + parsed API responses), `typescript-expert` (dual zod v3/v4, SDK types), `security` (error text, LLM-authored prose handed to another agent) — explicitly **not** the Backend set: no Fastify, Drizzle or onion layering applies to this package, which is an HTTP client, not a server |
 | Full-stack (any touched `.ts`/`.tsx`) | `zod` (if schemas touched), `typescript-expert` (if generics/perf/tooling), `security` (always, if the diff touches auth, input handling, file upload, secrets, or DB queries) |
 | Contract change (`vendor/shared`) | run **both** the Backend and Frontend sets above, since a contract change ripples both ways |
 
@@ -106,6 +108,7 @@ not a judgment call — it's as blocking as a CRITICAL finding, and far cheaper 
 | `client/` | `cd client && pnpm typecheck && pnpm test` |
 | `server/` | `cd server && pnpm typecheck && pnpm test` (hermetic `*.test.ts` only; add `*.it.test.ts` only if the diff touches DB-backed code, since those need testcontainers Postgres) |
 | `reviewer-core/` | `cd reviewer-core && npm run typecheck && npm test` |
+| `mcp/` | `cd mcp && npm run typecheck && npm test` |
 | `e2e/` | run `cd e2e && npm run e2e:hermetic` only if the diff itself touches `e2e/**` |
 
 Only run commands for packages actually present in Step 2's classification — never

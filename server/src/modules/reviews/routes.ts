@@ -31,7 +31,7 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     '/pulls/:id/review',
     { schema: { params: IdParams }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req) => {
-    const { workspaceId } = await getContext(container, req);
+    const { workspaceId, requestId } = await getContext(container, req);
     const body = RunRequest.parse(req.body ?? {});
     const targets = await service.resolveTargets(workspaceId, {
       ...(body.agentId !== undefined ? { agentId: body.agentId } : {}),
@@ -44,7 +44,7 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
       req.log,
       body.skip_skills,
     );
-    return { pr_id: req.params.id, runs, reviews };
+    return { pr_id: req.params.id, runs, reviews, request_id: requestId };
   });
 
   // ---- SSE: live run events (replay buffer first, then live; ends on done) -

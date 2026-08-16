@@ -42,6 +42,7 @@ export function RunReviewDropdown({
     onRunStart?.();
     try {
       const res = await run.mutateAsync({ prId, ...opts });
+      console.debug("[review] run kicked off", { requestId: res.request_id, runIds: res.runs.map((r) => r.run_id) });
       onRunsStarted?.(res.runs.map((r) => r.run_id));
     } finally {
       onRunSettled?.();

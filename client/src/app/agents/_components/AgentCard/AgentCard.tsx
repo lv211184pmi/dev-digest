@@ -44,7 +44,7 @@ export function AgentCard({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (window.confirm(`Delete agent "${ag.name}"? This cannot be undone.`)) del.mutate(ag.id);
+            if (window.confirm(t("card.confirmDelete", { name: ag.name }))) del.mutate(ag.id);
           }}
           disabled={del.isPending}
           title="Delete agent"

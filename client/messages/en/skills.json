@@ -1,6 +1,7 @@
 {
   "card": {
-    "noDescription": "No description"
+    "noDescription": "No description",
+    "confirmDelete": "Delete skill \"{name}\"? This cannot be undone."
   },
   "page": {
     "crumbLab": "Skills Lab",

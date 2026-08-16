@@ -53,6 +53,7 @@ export const ReviewRunResponse = z.object({
   pr_id: z.string(),
   runs: z.array(ReviewRunTarget),
   reviews: z.array(ReviewRecord),
+  request_id: z.string(),
 });
 export type ReviewRunResponse = z.infer<typeof ReviewRunResponse>;
 

@@ -38,14 +38,30 @@ touch the pipeline internals:
 - `getRepoMap(repoId)` → the cached repo skeleton (fed into the **review prompt**).
 - `getFileRank(repoId, files)` → importance percentile per changed file.
 - `getCallerSignatures(repoId, files, limit)` → callers of changed symbols.
-- `getBlastRadius(repoId, files)` → impacted symbols / callers (used by L04).
+- `getBlastRadius(repoId, files)` → changed symbols + **every** resolved caller,
+  grouped by changed symbol and rank-sorted within each group (used by L04).
+  Deliberately uncapped: `MAX_CALLERS_PER_SYMBOL` is a display rule the consumer
+  applies, because a consumer handed a pre-truncated list can neither report an
+  honest pre-cap count nor attribute endpoints from the callers it never saw.
+- `getImpactedFiles(repoId, changedFiles)` → a reverse `file_edges` walk to
+  `BFS_DEPTH = 2` joined against `file_facts`: which files sit downstream of the
+  changed set, and what endpoints/crons they declare (used by L04).
 - `getUnresolvedReferences(repoId, …)` → phantom-symbol detection (used by L06).
 - `getConventionSamples(repoId)` → top-ranked files for convention extraction (L02).
 
 In the starter, only `getRepoMap` / `getFileRank` / `getCallerSignatures` are
 wired — into `modules/reviews/run-executor.ts`, which adds the repo map and a
 high-blast-radius note to the prompt. Toggled by `REPO_INTEL_ENABLED` (global)
-and a per-agent `repo_intel` flag.
+and a per-agent `repo_intel` flag. L04 added the first consumer of
+`getBlastRadius` + `getImpactedFiles`: see
+[`../blast/README.md`](../blast/README.md).
+
+**Gating these reads is deliberate, not defensive.** With the flag off or the
+index unusable, `getCallerSignatures` returns `[]` and `getBlastRadius` /
+`getImpactedFiles` return an empty result carrying `degraded: true` and a
+`DegradedReason` — none of them falls through to the ripgrep path, which walks
+the entire clone per call with no cache, cap or timeout. A consumer's job is to
+surface that reason, never to render the empty result as "nothing found".
 
 ## Routes
 

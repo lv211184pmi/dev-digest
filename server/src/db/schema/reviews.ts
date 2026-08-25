@@ -108,6 +108,36 @@ export const prIntent = pgTable('pr_intent', {
   derivedAt: timestamp('derived_at', { withTimezone: true }).defaultNow(),
 });
 
+/**
+ * The cached one-sentence blast-radius summary for a PR, and nothing else.
+ *
+ * `head_sha` + `facts_hash` together form the cache key: the summary is reused
+ * only when the PR head is unchanged AND the computed node set hashes the same,
+ * so a reindex that moves the nodes invalidates the sentence describing them.
+ *
+ * The nodes themselves (changed symbols, callers, endpoints, crons) are
+ * DELIBERATELY NOT PERSISTED — they are re-derived from the repo-intel index on
+ * every request. Caching them would let a reindex serve a stale impact map,
+ * which is the one failure this feature exists to prevent.
+ *
+ * Shaped exactly like `pr_intent` above: PK is `pr_id` itself, no surrogate id
+ * and no extra index (every read is by that key), cache-key columns nullable.
+ */
+export const prBlast = pgTable('pr_blast', {
+  prId: uuid('pr_id')
+    .primaryKey()
+    .references(() => pullRequests.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  headSha: text('head_sha'),
+  factsHash: text('facts_hash'),
+  provider: text('provider'),
+  model: text('model'),
+  costUsd: doublePrecision('cost_usd'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  derivedAt: timestamp('derived_at', { withTimezone: true }).defaultNow(),
+});
+
 export const prBrief = pgTable('pr_brief', {
   prId: uuid('pr_id')
     .primaryKey()

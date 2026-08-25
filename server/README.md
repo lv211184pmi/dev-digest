@@ -72,13 +72,15 @@ flowchart TB
     reviews["reviews<br/>/pulls/:id/review · /pulls/:id/intent (GET·POST) · /reviews<br/>/pulls/:id/smart-diff · /findings/:id/(accept|dismiss) · /runs/:id/(events|trace)"]
   end
   subgraph Agents["Agents"]
-    agents["agents<br/>/agents · /agents/:id"]
+    agents["agents<br/>/agents · /agents/:id<br/>/agents/:id/context-docs (GET·PUT)"]
   end
   subgraph Intel["Repo intelligence"]
     repoIntel["repo-intel<br/>/repos/:id/index-state · /resync"]
+    blast["blast<br/>/pulls/:id/blast (GET·POST)"]
+    projectContext["project-context<br/>/repos/:id/project-context<br/>/repos/:id/project-context/usage<br/>/repos/:id/project-context/doc"]
   end
   subgraph SkillsLab["Skills Lab"]
-    skills["skills<br/>/skills · /skills/:id/versions · /skills/community"]
+    skills["skills<br/>/skills · /skills/:id/versions · /skills/community<br/>/skills/:id/context-docs (GET·PUT)"]
     conventions["conventions<br/>/repos/:id/conventions(/extract) · /conventions/:id<br/>/conventions/runs/:id/(decisions|skill-draft|skill)"]
   end
   subgraph Platform["Platform"]
@@ -149,6 +151,43 @@ What the reviewer actually sends to the model is assembled in
     call). `is_stale` is derived from the stored head vs the PR's current head.
   - `POST /pulls/:id/intent` — force a re-derive. Rate-limited like the review
     trigger (10/min) because it spends money.
+- **Project context is user-attached, not derived — no LLM call to build it.**
+  An agent's or a linked-and-enabled skill's attached `.md` documents
+  (`modules/project-context/`) are read from the clone at run start and
+  injected full-text into a `## Project context` section, untrusted and
+  capped (2,000 tokens/document, 8,000/run). An attachment change persists
+  immediately (`PUT /agents/:id/context-docs`, `PUT /skills/:id/context-docs`)
+  and is **not** versioned config — it writes no `agent_versions` /
+  `skill_versions` row. `GET /repos/:id/project-context/doc` serves a single
+  document's own text for in-studio preview, gated to a path present in the
+  current discovery listing. See
+  [`../docs/project-context.md`](../docs/project-context.md) for discovery,
+  attachment, injection and the trace fields.
+
+**Blast radius** (`modules/blast/`) answers "what can this diff impact?" — the
+symbols the PR changed, who calls them, and the HTTP endpoints and cron jobs
+downstream of those callers. Every node is read from the repo-intel Postgres
+index (a reverse `file_edges` crawl of depth 2); exactly one cheap LLM call
+writes a 1-2 sentence summary **of the already-computed node list**, so the
+model can never contribute or contradict a node. The summary is cached on
+`pr_blast` keyed by `head_sha` + a hash of the nodes; the nodes themselves are
+never persisted, so a reindex cannot serve a stale map.
+
+  - `GET /pulls/:id/blast` — the full deterministic map. Returns **200 with
+    `summary: null`** when the sentence was never derived (unlike
+    `GET /pulls/:id/intent`, which 404s): the map is the product, the sentence
+    is a garnish. No LLM call.
+  - `POST /pulls/:id/blast` — force a re-derive of the summary. Rate-limited
+    10/min because it spends money.
+  - Any state that is not a real, index-backed answer sets
+    `index.state` to `partial`/`unavailable` with a **non-empty** `explanation`
+    and a `files_not_covered` list. An empty `downstream` is never presented on
+    its own, because it reads identically to "this change is safe".
+
+  The module keeps its own README next to the code —
+  [`src/modules/blast/README.md`](src/modules/blast/README.md) has the request
+  pipeline and ring diagrams, the coverage rules, and why the ripgrep full-tree
+  scan is unreachable from this route.
 
 ## Testing
 

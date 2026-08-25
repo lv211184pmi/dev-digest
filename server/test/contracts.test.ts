@@ -12,6 +12,7 @@ import {
   EvalRun,
   MemoryItem,
   RunTrace,
+  ProjectContextInjected,
   Settings,
   Repo,
   PrDetail,
@@ -184,18 +185,25 @@ describe('AI contracts parse fixtures', () => {
     ).not.toThrow();
   });
 
+  // Shared base for both RunTrace fixtures below — the config/stats/
+  // prompt_assembly triple is identical across both; each test extends it
+  // with only the fields the case actually varies.
+  const BASE_RUN_TRACE_INPUT = {
+    config: { agent: 'Security Reviewer', version: 'v7', model: 'gpt-4.1', pr: 482, source: 'local' },
+    stats: {
+      duration_ms: 8200,
+      tokens_in: 14820,
+      tokens_out: 1240,
+      cost_usd: 0.06,
+      findings: 3,
+      grounding: '3/3 passed',
+    },
+    prompt_assembly: { system: 's', user: 'u' },
+  } as const;
+
   it('RunTrace (data2.jsx TRACE single-document)', () => {
     const trace = RunTrace.parse({
-      config: { agent: 'Security Reviewer', version: 'v7', model: 'gpt-4.1', pr: 482, source: 'local' },
-      stats: {
-        duration_ms: 8200,
-        tokens_in: 14820,
-        tokens_out: 1240,
-        cost_usd: 0.06,
-        findings: 3,
-        grounding: '3/3 passed',
-      },
-      prompt_assembly: { system: 's', user: 'u' },
+      ...BASE_RUN_TRACE_INPUT,
       tool_calls: [{ tool: 'read_file', args: "'src/config.ts'", meta: '1,240 bytes', ms: 120 }],
       raw_output: '{}',
       memory_pulled: [{ pr: 288, text: 'verified via stripe-signature' }],
@@ -203,6 +211,38 @@ describe('AI contracts parse fixtures', () => {
       log: [{ t: '00.00', kind: 'info', msg: 'started' }],
     });
     expect(trace.tool_calls).toHaveLength(1);
+  });
+
+  it('RunTrace.project_context defaults to [] when absent from a fixture', () => {
+    const trace = RunTrace.parse({
+      ...BASE_RUN_TRACE_INPUT,
+      tool_calls: [],
+      raw_output: '{}',
+      memory_pulled: [],
+      specs_read: [],
+      log: [],
+    });
+    expect(trace.project_context).toEqual([]);
+  });
+
+  it('ProjectContextInjected round-trips, including a null and a non-null inherited_from', () => {
+    const direct = ProjectContextInjected.parse({
+      path: 'specs/security-baseline.md',
+      type: 'specs',
+      tokens: 120,
+      status: 'included',
+      inherited_from: null,
+    });
+    expect(direct.inherited_from).toBeNull();
+
+    const inherited = ProjectContextInjected.parse({
+      path: 'docs/adr/0001-auth.md',
+      type: 'docs',
+      tokens: 340,
+      status: 'truncated',
+      inherited_from: 'Security baseline',
+    });
+    expect(inherited.inherited_from).toBe('Security baseline');
   });
 });
 

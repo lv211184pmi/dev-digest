@@ -1,5 +1,12 @@
 import type { Container } from '../../platform/container.js';
-import type { CommunitySkill, Skill, SkillSource, SkillType, SkillVersion } from '@devdigest/shared';
+import type {
+  CommunitySkill,
+  ProjectContextAttachment,
+  Skill,
+  SkillSource,
+  SkillType,
+  SkillVersion,
+} from '@devdigest/shared';
 import { NotFoundError } from '../../platform/errors.js';
 import { SkillsRepository } from './repository.js';
 import { toSkillDto, toSkillVersionDto } from './helpers.js';
@@ -123,6 +130,35 @@ export class SkillsService {
     const skill = await this.repo.getById(workspaceId, skillId);
     if (!skill) return undefined;
     return this.repo.agentsForSkill(skillId);
+  }
+
+  // ---- Project Context attachments (skill_context_docs) -------------------
+
+  /** A skill's attached documents for one repo, in injection order. */
+  async contextDocs(
+    workspaceId: string,
+    skillId: string,
+    repoId: string,
+  ): Promise<ProjectContextAttachment[] | undefined> {
+    const skill = await this.repo.getById(workspaceId, skillId);
+    if (!skill) return undefined;
+    return this.repo.contextDocs(skillId, repoId);
+  }
+
+  /**
+   * Replace the skill's attached documents for one repo with `paths`, in
+   * that order. This is the whole operation (D22): no version is cut and no
+   * `skill_versions` row is written (see `SkillsRepository.setContextDocs`).
+   */
+  async setContextDocs(
+    workspaceId: string,
+    skillId: string,
+    repoId: string,
+    paths: string[],
+  ): Promise<ProjectContextAttachment[] | undefined> {
+    const skill = await this.repo.getById(workspaceId, skillId);
+    if (!skill) return undefined;
+    return this.repo.setContextDocs(workspaceId, skillId, repoId, paths);
   }
 
   // ---- Import (unpersisted preview; a normal create() confirms) -----------

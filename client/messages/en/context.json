@@ -1,24 +1,41 @@
 {
   "title": "Project Context",
-  "chunks": "{count} chunks",
-  "reindex": "Re-index",
-  "indexing": "Indexing…",
-  "resync": "Resync",
-  "resyncing": "Resyncing…",
-  "indexStatus": "Index status: {status}",
-  "loadError": "Couldn’t load specs",
-  "kb": "{kb}kb",
-  "empty": {
-    "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
+  "loadError": "Couldn’t load the document list",
+  "emptyState": {
+    "title": "No documents found",
+    "body": "No .md file was found under this repo’s configured search roots.",
+    "roots": "Searched: {roots}"
   },
-  "mode": {
-    "preview": "preview",
-    "edit": "edit"
+  "notCloned": {
+    "title": "Repo not cloned",
+    "body": "This repo hasn’t been cloned yet, so its documents can’t be listed.",
+    "resync": "Resync",
+    "resyncing": "Resyncing…"
   },
-  "editor": {
-    "loadError": "Couldn’t load spec",
-    "save": "Save",
-    "saving": "Saving…"
+  "truncatedNotice": "This listing was capped at the discovery limit — more documents exist than are shown.",
+  "footer": {
+    "documents": "{count} documents",
+    "tokens": "≈{count} tokens",
+    "discovered": "discovered {time}",
+    "time": {
+      "unknown": "—",
+      "now": "now",
+      "minutesAgo": "{m}m ago",
+      "hoursAgo": "{h}h ago",
+      "daysAgo": "{d}d ago"
+    }
+  },
+  "noSelection": {
+    "title": "No document selected",
+    "body": "Pick a document from the list to read it here."
+  },
+  "doc": {
+    "usedBy": "Used by {count} agents",
+    "loadError": "Couldn’t load this document’s content",
+    "truncated": "Truncated to the same slice a review run would inject.",
+    "empty": "This document is empty."
+  },
+  "toolbar": {
+    "refresh": "Refresh"
   }
 }

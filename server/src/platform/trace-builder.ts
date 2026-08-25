@@ -50,6 +50,11 @@ export function buildRunTrace(input: BuildTraceInput): RunTrace {
     raw_output: input.rawOutput,
     memory_pulled: input.memoryPulled,
     specs_read: input.specsRead,
+    // Additive field (R43): none of this builder's callers (multi-agent /
+    // built-in-detector runs) resolve project context — `run-executor.ts`'s
+    // single-agent reviewer is the only Phase 4 producer. `[]` here, not a
+    // param, keeps `BuildTraceInput` unchanged for every existing caller.
+    project_context: [],
     log: input.log,
   };
   // Validate so a malformed trace fails loudly at write-time, not read-time.

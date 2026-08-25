@@ -70,8 +70,15 @@ export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, body?: unknown) =>
     apiFetch<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
-  put: <T>(path: string, body?: unknown) =>
-    apiFetch<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
+  /** `init` exists for `AbortSignal`-based cancel-and-replace
+      (`hooks/project-context.ts`, D25). `method` and `body` are spread
+      *after* `init` so a caller cannot accidentally override them. Note that
+      an aborted request surfaces through `apiFetch`'s catch as
+      `ApiError(0, "network_error")` with the original `AbortError` on
+      `.details` — callers that abort deliberately must recognise it rather
+      than treat it as a network failure. */
+  put: <T>(path: string, body?: unknown, init?: RequestInit) =>
+    apiFetch<T>(path, { ...init, method: "PUT", body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>
     apiFetch<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),

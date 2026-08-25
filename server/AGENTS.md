@@ -45,4 +45,7 @@ pnpm db:seed                                # idempotent demo data
   `engineering-insights` skill at the end of the task to add to it.
 - Read `README.md` for the API map and the request/DI flow diagram.
 - Read `src/modules/repo-intel/README.md` when touching indexing or the repo map.
+- Read `src/modules/blast/README.md` when touching the PR impact map — the two
+  `/pulls/:id/blast` routes, the coverage/`index.state` rules, or anything that
+  reads the import graph per request.
 - Read `../TESTING.md` before adding a test or changing the unit/integration split.

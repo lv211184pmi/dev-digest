@@ -15,7 +15,7 @@ description: >-
 
 A two-half loop over the `INSIGHTS.md` files. **Read** at the start of a task,
 **record** at the end. Insights are module-local by design: a session working in
-`client/` reads `client/INSIGHTS.md`, not all five. Knowledge lives next to the
+`client/` reads `client/INSIGHTS.md`, not all six. Knowledge lives next to the
 code it is about.
 
 ## Step 1 — Read first (mandatory)
@@ -41,6 +41,7 @@ code. This is the order root `AGENTS.md` already sets out: `specs/` → `docs/` 
 | `client/**`                                                                  | `client/INSIGHTS.md`        |
 | `reviewer-core/**`                                                           | `reviewer-core/INSIGHTS.md` |
 | `e2e/**`, `scripts/e2e.sh`                                                   | `e2e/INSIGHTS.md`           |
+| `mcp/**`, `.mcp.json`                                                        | `mcp/INSIGHTS.md`           |
 | `scripts/`, `.github/`, `docker-compose.yml`, root docs, **or ≥2 packages**  | `INSIGHTS.md` (root)        |
 
 Edge cases that get misfiled:

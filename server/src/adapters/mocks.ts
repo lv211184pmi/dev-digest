@@ -249,6 +249,12 @@ export interface MockGitOptions {
   head?: string;
   /** Head `currentHead()` returns AFTER `sync()` runs — simulates fetch+reset advancing HEAD. */
   syncedHead?: string;
+  /**
+   * Override for `listFiles()` — lets a test assert the `maxFiles` cap and
+   * `truncated` flag without inventing thousands of `files` entries. When
+   * absent, `listFiles()` derives its entries from `files` instead.
+   */
+  listFiles?: Array<{ path: string; bytes: number; modifiedAt: Date }>;
 }
 
 export class MockGitClient implements GitClient {
@@ -293,6 +299,50 @@ export class MockGitClient implements GitClient {
   async readFile(_repo: RepoRef, path: string): Promise<string> {
     return this.opts.files?.[path] ?? '';
   }
+  async listFiles(
+    _repo: RepoRef,
+    opts: { globs: string[]; maxFiles: number },
+  ): Promise<Array<{ path: string; bytes: number; modifiedAt: Date }>> {
+    const source =
+      this.opts.listFiles ??
+      Object.entries(this.opts.files ?? {}).map(([path, content]) => ({
+        path,
+        bytes: content.length,
+        modifiedAt: new Date('2026-01-01T00:00:00Z'),
+      }));
+    const matchers = parseSimpleGlobsForMock(opts.globs);
+    const matched = source.filter((f) => matchesAnyGlobForMock(f.path, matchers));
+    matched.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    return matched.slice(0, opts.maxFiles);
+  }
+}
+
+/**
+ * Mirrors `adapters/git/simple-git.ts`'s inline glob matcher (kept as a
+ * separate, deliberately duplicated copy rather than a shared import — the
+ * git adapter is self-contained by design; see that file's comment and the
+ * Phase 3 plan's "Open questions"). The canonical discoverable-path RULE
+ * lives in `modules/project-context/domain-services/discovery.ts`.
+ */
+function parseSimpleGlobsForMock(globs: string[]): Array<{ segment: string; ext: string }> {
+  const out: Array<{ segment: string; ext: string }> = [];
+  for (const glob of globs) {
+    const m = /^\*\*\/([^/*]+)\/\*\*\/\*(\.[^/*]+)$/.exec(glob);
+    if (m) out.push({ segment: m[1]!, ext: m[2]! });
+  }
+  return out;
+}
+
+function matchesAnyGlobForMock(
+  relPath: string,
+  matchers: Array<{ segment: string; ext: string }>,
+): boolean {
+  if (matchers.length === 0) return false;
+  const segments = relPath.split('/');
+  if (segments.length < 2) return false;
+  const name = segments[segments.length - 1]!;
+  const dirSegments = segments.slice(0, -1);
+  return matchers.some((m) => name.endsWith(m.ext) && dirSegments.includes(m.segment));
 }
 
 // ---------- Mock CodeIndex ----------

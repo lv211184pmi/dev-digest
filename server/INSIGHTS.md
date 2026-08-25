@@ -47,9 +47,62 @@ _None yet._
 
 ## What Doesn't Work
 
-_None yet._
+- **2026-08-24** — a "collect N items then stop" walker that hard-stops the
+  instant `out.length >= maxFiles` can never distinguish "found exactly the
+  cap" from "found more and got cut off" — its own length can never exceed the
+  cap, so a caller's `truncated = length >= maxFiles` check is a false
+  positive whenever discovery lands on *exactly* the cap. Hit in
+  `GitClient.listFiles` (`adapters/git/simple-git.ts`'s `walkForMatches`) feeding
+  `project-context-service.ts`'s `list()`: a repo with exactly
+  `MAX_DISCOVERED_FILES` matching files was reported `truncated: true` even
+  though nothing was left out. The bug was locked in, not caught, by a test
+  that fed exactly the cap and asserted `truncated: true`. **Fixed 2026-08-24**
+  — the walker now collects `maxFiles + 1` so real truncation is
+  distinguishable, the caller sets `truncated = length > maxFiles` and slices
+  the result back to `maxFiles` before returning it. General rule: any
+  cap-and-stop collector needs to collect one *past* the cap to know whether
+  it was actually cut off. Also watch for a hand-rolled `Mock*Client` in
+  `adapters/mocks.ts` that reimplements a similar cap independently rather
+  than delegating — `MockGitClient.listFiles` still unconditionally slices to
+  `maxFiles` post-fix and does not mirror the real adapter's new
+  collect-one-extra behavior, so a future hermetic test reaching for the
+  shared mock to test a truncation boundary will silently get the *stale*
+  (pre-fix) semantics unless it builds a local override, as
+  `test/project-context-routes.test.ts`'s `OverflowGitClient` does.
+
+- **2026-08-25** — `MockGitClient.readFile` (`src/adapters/mocks.ts`) returns
+  `''` unconditionally for any path absent from its `files` fixture map — it
+  cannot distinguish "not in the fixture" from "genuinely empty," even though
+  the real adapter's read path (`CloneFileSource.readRaw` /
+  `SimpleGitClient.readFile`) throws/returns `null` on a missing file. This
+  blocks writing a "discoverable but unreadable" test directly against the
+  shared mock: a test needs its own `GitClient` subclass overriding
+  `readFile` to throw, mirroring real ENOENT behavior — see
+  `UnreadableFileGitClient` in `test/project-context-routes.test.ts`. Check
+  before reaching for `MockGitClient` alone to test a missing/unreadable-file
+  branch; it will silently return an empty string instead.
 
 ## Codebase Patterns
+
+- **2026-08-23** — adding a **versioned** field to an agent or skill config is a
+  four-place edit, and not one of the four fails loudly if you miss it.
+  (1) `agent_versions.config_json` is `jsonb`, but `AgentRepository.snapshotVersion`
+  builds it from an explicit eight-field whitelist — `provider`, `model`,
+  `system_prompt`, `output_schema`, `strategy`, `ci_fail_on`, `repo_intel`,
+  `skills` (`server/src/modules/agents/repository.ts:148-167`) — so a new field is
+  simply absent from every snapshot. (2) Whether a version is cut at all is decided
+  by two more field whitelists, `isSkillConfigChange`
+  (`server/src/modules/skills/helpers.ts:48-58`) and `isConfigChange`
+  (`server/src/modules/agents/helpers.ts:61-74`); a change to an unlisted field
+  bumps nothing. (3) `skill_versions` rows are
+  `{skillId, version, body, changeSummary}` and nothing else
+  (`server/src/modules/skills/repository.ts:118-129`), so a skill-side field needs
+  a real column, not just a serializer edit — otherwise the snapshot is
+  byte-identical to its predecessor and the Versions tab shows v5 → v6 with no
+  visible difference. (4) `SkillRepository.restoreVersion` (`:156-167`) restores
+  **only `body`**, and its own comment notes that "a restore that matches the
+  current body is a no-op" — so restoring a version whose sole difference is the
+  new field does nothing at all, with no error. Grep all four before adding one.
 
 - **2026-08-05** — a job handler that makes a paid LLM call must never let its
   promise reject, or `JobRunner` (`platform/jobs.ts`) retries it up to 3x
@@ -101,10 +154,40 @@ _None yet._
   `pr_files`/`pr_commits`; a failed insert leaves the pull with no files. Any
   work that adds a second write in the same request should use
   `db.transaction(...)` rather than assume this is fine because "nothing else
-  does it either."
+  does it either." **Confirmed again 2026-08-24**: Project Context's
+  `AgentsRepository.setContextDocs`/`SkillsRepository.setContextDocs`/
+  `restoreVersion` originally did the doc-row write, the version bump, and the
+  `snapshotVersion` insert as three separate un-transacted round trips — a
+  crash between them desyncs the version/snapshot audit trail from the actual
+  attachment rows. **Fixed 2026-08-24** by wrapping all three in one
+  `db.transaction()` per method (`agents/repository.ts:314-349`,
+  `skills/repository.ts:313-355,203-256`). The fix has a second gotcha worth
+  keeping: a private helper called *inside* the transaction (here,
+  `snapshotVersion`, which itself calls `contextDocsForSnapshot`/
+  `linkedSkills`/`skillIdsForAgent`) must have the `tx` handle threaded through
+  **every read it does**, not just the final insert — a read issued via
+  `this.db` inside an open transaction runs on a different pooled connection
+  and won't see the transaction's own uncommitted writes, so the snapshot
+  would silently capture the *pre*-write state. `AgentsRepository.update()`
+  and `SkillsRepository.update()` still do their version bump and
+  `snapshotVersion` insert as two separate un-transacted calls (not fixed —
+  out of this fix's scope) — the same race applies there and to any future
+  method that writes more than one table per logical save.
 
 ## Tool & Library Notes
 
+- **2026-08-25** — `TiktokenTokenizer`'s `cl100k_base` encoder (js-tiktoken)
+  is pathologically slow on a long run of a single repeated character:
+  ~6.2s to encode one 8001-char `'x'.repeat(8001)` string vs ~11ms for 8001
+  chars of varied content. A boundary test built with `.repeat()` that
+  happens to route through the real tokenizer instead of the mockable
+  `ContainerOverrides.tokenizer` seam can single-handedly dominate a whole
+  suite's runtime — one such test in
+  `server/test/project-context-routes.test.ts` accounted for over 90% of a
+  32-file hermetic lane's total execution time (15.2s of ~15.2s) before
+  being fixed by passing `overrides: { tokenizer: { count: () => 0 } }` in
+  `buildApp`. Use varied-content fixtures for large boundary tests, or stub
+  the tokenizer, whichever is cheaper for the assertion at hand.
 - **2026-08-11** — `RipgrepCodeIndex.references()` and `.symbols()`
   (`src/adapters/codeindex/ripgrep.ts:99-126`) do NOT shell out to ripgrep
   despite the class name — only `.grep()` does. Both instead do a full
@@ -126,6 +209,30 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+- **2026-08-15** — a review that returns `verdict: approve`, `score: 100`,
+  zero findings and the summary "The diff is empty" is a **false pass**, not a
+  clean PR. `loadDiff` (`src/modules/reviews/diff-loader.ts:19-29`) tries
+  `git diff base...headSha` in the clone, then falls back to reassembling
+  `pr_files.patch`, and returns an empty `UnifiedDiff` when both come up dry —
+  the agent then dutifully approves nothing. Both paths fail together for any
+  PR opened from a **fork**: the clone's refspec is
+  `+refs/heads/main:refs/remotes/origin/main` only (`POST /repos/:id/refresh`
+  does not add `refs/pull/*/head`), so the head SHA is absent
+  (`git -C server/clones/<owner>/<name> cat-file -t <headSha>` → `could not
+  get object info`), and `pr_files` is empty until something imports it.
+  Diagnose with `select count(*), count(patch) from pr_files where
+  pr_id='<uuid>'`; fix by calling `GET /pulls/:id` once, which re-imports
+  files/commits from GitHub, then re-run the agent. Neither the run nor the
+  MCP `run_agent_on_pr` response distinguishes this from a genuine approve —
+  check `additions`/`files_count` on the pull row before trusting a 100.
+- **2026-08-15** — `pulls.listFiles` in `src/adapters/github/octokit.ts:80-85`
+  is a single un-paginated call with `per_page: 100`, so any PR over 100 files
+  is silently truncated to the first 100 — the reviewer sees a partial diff and
+  says so in its summary ("not present in the provided diff") without any
+  warning that data was dropped. Observed on
+  `ai-agentic-engineering-neo/dev-digest#131`: pull row says `files_count: 424`,
+  `pr_files` holds 100 rows / 98 patches. Use `octokit.paginate` there before
+  trusting a review of a large PR.
 - **2026-08-11** — a review stuck logging `Resolving <provider> provider
   done` and nothing after (no `Prompt assembled` line) is hung inside
   `run-executor.ts`'s `buildCallersDigest`/`buildRepoMapDigest`/

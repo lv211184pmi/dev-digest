@@ -15,6 +15,7 @@ export {
   useContextFiles,
   useReindexContext,
 } from "./core";
+export { useProjectContext, useProjectContextUsage, useProjectContextDoc } from "./project-context";
 export {
   useAgents,
   useAgent,
@@ -37,6 +38,7 @@ export {
   useRunEvents,
 } from "./reviews";
 export { useRunTrace } from "./trace";
+export { useBlastRadius, useDeriveBlastSummary } from "./blast";
 export { useRepoIntelStatus, useResyncRepoIntel } from "./repo-intel";
 export {
   useConventions,

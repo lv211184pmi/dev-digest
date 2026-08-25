@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
-import { NotFoundError } from '../../platform/errors.js';
+import { NotFoundError, ValidationError } from '../../platform/errors.js';
+import type { Container } from '../../platform/container.js';
+import { RepoRepository } from '../repos/repository.js';
+import { ProjectContextService } from '../project-context/application-services/project-context-service.js';
+import { CloneFileSource } from '../project-context/infrastructure/external/clone-file-source.js';
 import { AgentsService } from './service.js';
 
 /** `/providers/:id` addresses a provider by name, not a uuid. */
@@ -28,6 +32,8 @@ const VersionParams = z.object({
  *   POST   /agents/:id/skills       → set/reorder linked skills OR link one
  *   GET    /agents/:id/models       → dynamic model list for the agent's provider
  *   GET    /providers/:id/models    → dynamic model list for a provider (editor)
+ *   GET    /agents/:id/context-docs → Project Context attachments for one repo (ordered)
+ *   PUT    /agents/:id/context-docs → replace the attachment set for one repo (attach/detach/reorder in one call)
  */
 
 const CreateAgentBody = z.object({
@@ -66,6 +72,43 @@ const SetSkillsBody = z
   .refine((b) => b.skill_ids !== undefined || b.skill_id !== undefined, {
     message: 'Provide skill_ids (set/reorder) or skill_id (link one)',
   });
+
+const ContextDocsQuery = z.object({ repo_id: z.string().uuid() });
+
+const PutContextDocsBody = z.object({
+  repo_id: z.string().uuid(),
+  paths: z.array(z.string().min(1)),
+});
+
+/**
+ * Reject the whole request 422 if any submitted path is not a currently
+ * discoverable document (the spec's "Attachment path submitted by the
+ * client" fence: validated on write, re-confined on read at Phase 4) — a
+ * partial write would make the saved set disagree with the version
+ * snapshot. `paths: []` (clearing every attachment) skips the check
+ * entirely: there is nothing to validate, and a repo that has lost its
+ * clone must still be able to clear a stale attachment list.
+ */
+async function assertDiscoverable(
+  container: Container,
+  workspaceId: string,
+  repoId: string,
+  paths: string[],
+): Promise<void> {
+  if (paths.length === 0) return;
+  const service = new ProjectContextService({
+    reposRepo: new RepoRepository(container.db),
+    fileSource: new CloneFileSource(container.git),
+  });
+  const listing = await service.list(workspaceId, repoId);
+  const discoverable = new Set(listing.docs.map((d) => d.path));
+  const invalidPaths = paths.filter((p) => !discoverable.has(p));
+  if (invalidPaths.length > 0) {
+    throw new ValidationError('One or more paths are not currently discoverable documents', {
+      invalid_paths: invalidPaths,
+    });
+  }
+}
 
 export default async function agentsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
@@ -175,4 +218,39 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
     await getContext(app.container, req);
     return service.listModels(req.params.id);
   });
+
+  app.get(
+    '/agents/:id/context-docs',
+    { schema: { params: IdParams, querystring: ContextDocsQuery } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      const docs = await service.contextDocs(workspaceId, req.params.id, req.query.repo_id);
+      if (!docs) throw new NotFoundError('Agent not found');
+      return docs;
+    },
+  );
+
+  app.put(
+    '/agents/:id/context-docs',
+    { schema: { params: IdParams, body: PutContextDocsBody } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      // Agent existence is checked BEFORE `assertDiscoverable` (which can
+      // 409 `repo_not_cloned` or throw `NotFoundError` on a bad `repo_id`) —
+      // otherwise a request naming both a nonexistent agent AND an invalid
+      // repo_id surfaces a misleading "repo not cloned" instead of "Agent
+      // not found" (B4 remediation).
+      const agent = await service.get(workspaceId, req.params.id);
+      if (!agent) throw new NotFoundError('Agent not found');
+      await assertDiscoverable(app.container, workspaceId, req.body.repo_id, req.body.paths);
+      const docs = await service.setContextDocs(
+        workspaceId,
+        req.params.id,
+        req.body.repo_id,
+        req.body.paths,
+      );
+      if (!docs) throw new NotFoundError('Agent not found');
+      return docs;
+    },
+  );
 }

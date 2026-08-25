@@ -63,7 +63,7 @@ Follow the shape that directory publishes rather than a generic one.
 |---|---|---|
 | Route map, page/hook map, how to run a package | that package's `README.md` | `server/README.md` for routes, `client/README.md` for pages and data hooks |
 | How a **shipped** subsystem works today; too long for README, too stable for INSIGHTS | `<module>/docs/<topic>.md`; spans ≥2 packages → root `docs/` | [`../../server/docs/README.md`](../../server/docs/README.md) lists good candidates — run lifecycle, DI container, secrets path, SSE traces |
-| Intent for work not built yet, or the agreed contract for a feature | `<module>/specs/NN-feature-name.md`; spans ≥2 packages → root `specs/` | [`../../specs/README.md`](../../specs/README.md): a spec is what to build and why it is done |
+| Intent for work not built yet, or the agreed contract for a feature | **[`spec-creator.md`](spec-creator.md)** — not written here | That agent owns `specs/`: EARS criteria, the design-analysis pass, and the routing table in [`../../specs/README.md`](../../specs/README.md). Setting an existing spec's `Status:` to `shipped` is still this agent's job |
 | A built-in agent's system prompt or model choice | `docs/agent-prompts/` | root [`AGENTS.md`](../../AGENTS.md) "Read when" |
 | Test strategy or CI lane changes | [`../../TESTING.md`](../../TESTING.md) | root [`AGENTS.md`](../../AGENTS.md) "Read when" |
 | What we tried and rejected; a non-obvious gotcha; a decision with its cost | `INSIGHTS.md` | **not written here** — see Step 4 |
@@ -72,7 +72,8 @@ Follow the shape that directory publishes rather than a generic one.
 Negative rules, carried from those READMEs:
 
 - Do not restate a `README.md` inside `docs/` — link to it.
-- Do not put intent in `docs/`; that is `specs/`.
+- Do not put intent in `docs/`; that is `specs/`, and authoring one is
+  [`spec-creator.md`](spec-creator.md)'s job.
 - Do not put rejected approaches in either; that is `INSIGHTS.md`.
 - A stale doc is **deleted**, not left. A wrong doc costs more than a missing one.
 - A shipped spec is either deleted or set to `Status: shipped`, with the durable
@@ -179,7 +180,8 @@ Rules attached to the template:
 ## Anti-patterns
 
 - Paraphrasing code line by line — that is a worse copy of the code.
-- Writing a spec for something already shipped; that is `docs/`.
+- Writing a spec at all; that is [`spec-creator.md`](spec-creator.md). Documenting what
+  already shipped is this agent's job, and it goes in `docs/`.
 - Copying the route map out of `README.md` into `docs/`.
 - A Mermaid diagram that restates a table.
 - Leaving a new doc unlinked from its directory README.

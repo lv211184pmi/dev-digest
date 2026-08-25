@@ -230,6 +230,19 @@ export interface GitClient {
   blame(repo: RepoRef, path: string): Promise<BlameLine[]>;
   log(repo: RepoRef, path?: string): Promise<GitCommit[]>;
   readFile(repo: RepoRef, path: string): Promise<string>;
+  /**
+   * List files under the clone matching `opts.globs` (simple `**\/<segment>/**\/*.ext`
+   * patterns). Returned paths are repo-relative, posix-separated, and already
+   * confined to the clone root. Symlinks are never followed or emitted;
+   * `node_modules/` and `.git/` are excluded at any depth. The walk stops as
+   * soon as it has collected `opts.maxFiles` entries — the caller detects
+   * truncation by comparing the returned length to `opts.maxFiles`. Returns
+   * `[]` (not a throw) when the clone directory does not exist.
+   */
+  listFiles(
+    repo: RepoRef,
+    opts: { globs: string[]; maxFiles: number },
+  ): Promise<Array<{ path: string; bytes: number; modifiedAt: Date }>>;
   clonePathFor(repo: RepoRef): string;
 }
 

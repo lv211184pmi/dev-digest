@@ -4,9 +4,10 @@ Reference material describing how the system works **today**, across more than
 one package. Human-first prose and diagrams; agents read it on demand via the
 `Read when` pointers in `../AGENTS.md`.
 
-| Path             | What                                                         |
-| ---------------- | ------------------------------------------------------------ |
-| `agent-prompts/` | System prompts for the built-in reviewers + model choice notes |
+| Path                    | What                                                         |
+| ----------------------- | ------------------------------------------------------------ |
+| `agent-prompts/`        | System prompts for the built-in reviewers + model choice notes |
+| `project-context.md`    | Repo-scoped `.md` document discovery, attachment, run-time injection and trace — server, client, reviewer-core |
 
 Package-local reference material goes in `<package>/docs/`.
 

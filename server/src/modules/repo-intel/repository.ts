@@ -436,6 +436,22 @@ export class RepoIntelRepository {
       .where(eq(t.fileEdges.repoId, repoId));
   }
 
+  /**
+   * REVERSE edge lookup: "who imports any of these files?", batched.
+   *
+   * This is the query the `file_edges_repo_to_idx` index on `(repo_id, to_file)`
+   * exists for, and it is what makes a per-request blast crawl O(degree) rather
+   * than O(all edges). Never widen `getEdges` for this — that one is the whole-repo
+   * graph build and is unusable on the hot path for a large repo.
+   */
+  async getImporters(repoId: string, files: string[]): Promise<IndexerEdgeRow[]> {
+    if (files.length === 0) return [];
+    return this.db
+      .select({ fromFile: t.fileEdges.fromFile, toFile: t.fileEdges.toFile })
+      .from(t.fileEdges)
+      .where(and(eq(t.fileEdges.repoId, repoId), inArray(t.fileEdges.toFile, files)));
+  }
+
   /** `{path, percentile}` for the given paths (smart-diff / run-executor). */
   async getFileRankFor(repoId: string, paths: string[]): Promise<FileRankRow[]> {
     if (paths.length === 0) return [];

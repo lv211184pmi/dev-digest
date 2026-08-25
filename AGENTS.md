@@ -33,6 +33,7 @@ Drizzle ORM + Postgres (pgvector) · Zod · Vitest · agent-browser (e2e)
 | Migrations      | `cd server && pnpm db:generate` then `pnpm db:migrate` |
 | Client          | `cd client && pnpm dev \| build \| typecheck \| test`  |
 | Engine          | `cd reviewer-core && npm test \| npm run typecheck`    |
+| MCP server      | `cd mcp && npm test \| npm run typecheck \| npm start` |
 | E2E (hermetic)  | `cd e2e && npm run e2e:hermetic`                       |
 
 Flags for `dev.sh`: `--no-seed` · `--no-client` · `--db-only` · `--help`.
@@ -45,14 +46,15 @@ Flags for `dev.sh`: `--no-seed` · `--no-client` · `--db-only` · `--help`.
 | `client/`                   | Next.js studio, App Router                                  |
 | `reviewer-core/`            | Pure engine: diff + repo map → prompt → LLM → findings      |
 | `e2e/`                      | Deterministic browser flows, no LLM                         |
+| `mcp/`                      | Local stdio MCP server, 5 tools over the :3001 API          |
 | `server/src/vendor/shared/` | `@devdigest/shared` — Zod contracts for every package       |
 | `client/src/vendor/ui/`     | `@devdigest/ui` — vendored UI primitives                    |
 
 ## Conventions (non-default — you cannot infer these from the code)
 
 - **Not a monorepo workspace.** Each package has its own `package.json` and its
-  own lockfile. `server/` + `client/` use **pnpm**; `reviewer-core/` + `e2e/` use
-  **npm**. Never run the wrong package manager in a package.
+  own lockfile. `server/` + `client/` use **pnpm**; `reviewer-core/`, `e2e/` +
+  `mcp/` use **npm**. Never run the wrong package manager in a package.
 - Cross-package imports resolve through **tsconfig path aliases**, not published
   modules. `reviewer-core` is consumed as TypeScript **source** and never emits
   JS — its `build` is a typecheck.
@@ -90,6 +92,9 @@ Flags for `dev.sh`: `--no-seed` · `--no-client` · `--db-only` · `--help`.
 - Read `client/README.md` when adding a page or a data hook.
 - Read `reviewer-core/README.md` when touching prompt assembly, structured
   output, or the grounding gate.
+- Read `docs/project-context.md` when touching repo-scoped `.md` document
+  discovery, an agent's or skill's attached-document set, or the
+  `## Project context` prompt slot.
 - Read `e2e/README.md` before writing or debugging a browser flow.
 - Read `INSIGHTS.md` at repo root for decisions that span more than one package.
 - Use the `engineering-insights` skill to read or record an insight — it maps a

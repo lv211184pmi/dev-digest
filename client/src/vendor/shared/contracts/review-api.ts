@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, IntentConfidence, IntentSource, SmartDiff } from './brief.js';
+import { BlastRadius, Intent, IntentConfidence, IntentSource, SmartDiff } from './brief.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -78,6 +78,29 @@ export const PrIntentRecord = Intent.extend({
   is_stale: z.boolean(),
 });
 export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
+
+/**
+ * GET/POST /pulls/:id/blast. Mirrors `PrIntentRecord`: `is_stale` is derived on read.
+ *
+ * Only the summary and its provenance are ever persisted — the nodes
+ * (`changed_symbols`, `downstream`, `totals`, `index`) are re-derived from the
+ * repo-intel index on every request, so a reindex can never serve a stale map.
+ */
+export const PrBlastRecord = BlastRadius.extend({
+  pr_id: z.string(),
+  /** null until the summary has been derived — the deterministic map ships without it. */
+  summary: z.string().nullable(),
+  head_sha: z.string().nullable(),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  cost_usd: z.number().nullable(),
+  tokens_in: z.number().int().nullable(),
+  tokens_out: z.number().int().nullable(),
+  derived_at: z.string().nullable(),
+  /** Stored summary's head_sha/facts_hash no longer match what was just computed. */
+  is_stale: z.boolean(),
+});
+export type PrBlastRecord = z.infer<typeof PrBlastRecord>;
 
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;

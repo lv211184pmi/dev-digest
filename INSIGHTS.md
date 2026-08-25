@@ -16,9 +16,119 @@ move it into `docs/` and delete it here.
 
 ## Decisions
 
-### 2026-08-09 — planner → implementer hand off through a file, never through the conversation
+### 2026-08-22 — Automate only the half of the chain whose rubric is already fixed
 
-**What:** `.claude/agents/planner.md` writes a plan to `.claude/plans/` (gitignored)
+**What:** `.claude/commands/implement.md` (`/implement`) drives `implementer` →
+`plan-verifier` → `architecture-reviewer` → `pr-self-review` → `document-writer`
+from an **approved plan file** and nothing earlier. `spec-creator` and
+`implementation-planner` are invoked by hand, one at a time, and no command
+advances a spec's `Status` either. Two roster changes went with it:
+`test-writer` left the default chain (still invocable by hand), and
+`architecture-reviewer` moved `opus` → `sonnet`.
+**Why:** the two halves fail differently. Every step before the approved plan
+ends in a decision only the caller can make — `spec-creator` returns blocking
+clarifications and a design-gap list, `implementation-planner` returns a
+requirement verdict plus the execution-mode question it asks every time — so
+chaining past them converts a review point into a formality and you approve a
+spec and a plan you never read. After the plan, the rubric *is* the plan: the
+steps are mechanical enough to sequence, and the two gates catch a bad run. The
+same "is the rubric supplied?" test is what makes `plan-verifier` and now
+`architecture-reviewer` Sonnet agents — their rules come from the plan, from
+`onion-architecture`/`ui-architecture`/`reviewer-core-engine`, and from
+`pr-self-review` Step 6's severity rubric, none of which the model has to infer.
+**Rejected:** one `/sdd` command spanning spec → commit (written, then deleted
+the same session — it made the approval gates look like progress bars); deleting
+`test-writer.md` outright rather than un-chaining it (a standalone testing pass
+over existing code still has no other owner).
+**2026-08-22 addendum — two corollaries of the same boundary.** (1) *Arguments
+go into the plan file, never into the agent's prompt.* `/implement` takes
+`--spec`, `--design <screenshots>` and free-text notes and writes them to a
+`## Run inputs` section on the plan, because `implementer.md` Step 0 refuses
+prose intent — the plan is the only channel it trusts, so anything arriving by
+another route is either ignored or silently outside the fence, and
+`plan-verifier` (which audits the plan) would never see it. The section is
+supporting material by construction: a design asset showing a screen no step
+lists is a Deviation, and free text that would change a step's Files, add a
+`Done when` or contradict a plan line is a *requirement* the command refuses and
+routes back to `implementation-planner`. That test is the only thing between a
+build command and unreviewed scope creep. (2) *Review findings iterate through
+the plan too.* All three reviewers are read-only — `architecture-reviewer` has no
+`Write`/`Edit` at the tool level — so a finding becomes an `A`-prefixed
+`## Remediation` id (`A` so it never collides with the plan's `R` ids) and the
+implementer runs scoped to it; a boundary fix needing an unlisted path extends
+that step's Files list **visibly**, in the same edit. Reviewer *questions*
+("Could not determine") take the other route: answered "deliberate", they are
+recorded in the module's `INSIGHTS.md`, which `architecture-reviewer` Step 2
+reads before flagging — so the answer retires the question permanently instead of
+it being re-raised every feature. Both loops are capped at two cycles per
+reviewer: a finding surviving two scoped fixes is a planning error, not a coding
+one.
+
+**Cost / what to watch:** with `test-writer` out, **nothing automatic notices a
+missing test** — `implementation-planner` Step 4 now *requires* every plan to name
+its test files with the lane already chosen and bind the testing skill on that
+step, and that obligation is the only thing holding the line. Watch for plans that
+quietly omit one. On the Sonnet reviewer, watch for false CRITICALs or a "Rule"
+line that paraphrases a skill instead of citing a section — either means put it
+back on `opus`, which is a one-line change.
+
+### 2026-08-22 — The plan audit belongs to the cheap fresh-context agent, and it is a gate with a way back
+
+**What:** `implementer.md` Step 5 lost its requirement-traceability table and its
+acceptance-criteria verdicts, keeping only what that run alone can know — scope
+proof from `git status --porcelain --untracked-files=all`, a per-step `Done when`
+table, the constraint sweep and verification colour. The full audit is
+`plan-verifier.md`'s alone, and it now runs **immediately after** the implementer,
+ahead of `architecture-reviewer`. Because it has no `Write`
+tool, a gap is returned as a *remediation directive*: un-archive the plan, set
+`Status: approved`, append a `## Remediation` section naming the failed ids.
+`implementer.md` Step 0 accepts such a plan and scopes the run to those ids only;
+`/implement remediate` applies the move.
+**Why:** the two audits were the same audit. The implementer ran it on
+`model: inherit` inside the largest context in the chain, and `plan-verifier` is
+forbidden from reusing its rows — so the expensive copy was discarded by design.
+Ordering it first is the other half: it is Sonnet and read-only, so gating on it
+costs least, and it needs a tree containing only what the plan listed, so
+nothing that writes may run ahead of it. Before the directive existed the chain simply
+stopped: a green run archives the plan as `implemented`, and the implementer
+accepts only `approved`/`in-progress` from `.claude/plans/`, so a `not met`
+verdict had no route back into code.
+**Rejected:** giving `plan-verifier` `Write` or `mv` so it could re-open the plan
+itself — a verifier that edits its own rubric is not one, and that fence is the
+same reason it omits `Skill`. The directive is text; the caller or `/implement` applies
+it.
+**Cost:** "run the steps after `implementer` in any order" is now false, and the
+order lives in three places — `.claude/agents/README.md`, `.claude/commands/implement.md`
+and each agent's Handoff line. A `## Remediation` section is also a second scoping
+mechanism beside the Steps' Files list; if the two disagree the implementer reports
+a Deviation rather than picking.
+
+### 2026-08-20 — `spec-creator`'s write fence is one glob, and routing bends to keep it that way
+
+**What:** `.claude/agents/spec-creator.md` may write to exactly `**/specs/**` and
+nothing else. To hold that line, specs for `e2e/` and `mcp/` route to the **root**
+`specs/` rather than to a module directory: `e2e/specs/` is reserved for runnable
+`.flow.json` and `mcp/` has no `specs/` at all, so the alternatives were writing
+prose into `e2e/docs/` or creating `mcp/specs/`. The glob also covers the
+`specs/README.md` the agent must link a new spec into, so "link it" needs no
+second exception.
+**Why:** a fence stated as one glob is checkable by reading the path; a fence
+stated as "specs, plus `e2e/docs/`, plus a directory it may create" is a policy
+the agent has to interpret, and an agent that interprets its own boundary does
+not have one. Root `specs/` was already the documented home for anything spanning
+≥2 packages, and `specs/03-devdigest-mcp.md` had set the precedent for `mcp/`.
+**Rejected:** a `PreToolUse` hook in `.claude/settings.json` enforcing the path —
+mechanically stronger, but it lands repo-wide config on everyone to constrain one
+agent, and the `tools` allowlist plus prompt rules already deny the routes that
+matter (no `Bash` writes, no `NotebookEdit`).
+**Cost:** two agents could have claimed `specs/`, so `document-writer.md`'s
+destination-table row for specs now hands the job over and its remaining
+`specs/` right is narrowed to flipping an existing spec's `Status:` to `shipped`.
+If that row drifts back, both agents will write specs and neither will own them.
+
+### 2026-08-09 — implementation-planner → implementer hand off through a file, never through the conversation
+
+**What:** `.claude/agents/implementation-planner.md` writes a plan to `.claude/plans/` (gitignored)
 and `.claude/agents/implementer.md` reads it back; the plan's "Steps → Files" list
 is the implementer's scope boundary and its "Skills contract" table is the binding
 list of skills it may load. The implementer archives the plan to
@@ -166,6 +276,44 @@ _None yet._
 
 ## Codebase Patterns
 
+- **2026-08-23** — `reviewer-core`'s project-context prompt slot is **fully built
+  and completely dead**, and has been since it was written. `PromptParts.specs`
+  assembles a `## Project context` section with `wrapUntrusted()` and a manifest
+  record (`reviewer-core/src/prompt.ts:64,205-207,255-257`); `ReviewInput.specs`
+  threads it through (`reviewer-core/src/review/run.ts:60,155`); the contracts
+  carry `PromptAssembly.specs` and `RunTrace.specs_read`
+  (`server/src/vendor/shared/contracts/trace.ts:43,94`); and the client already
+  renders both (`…/RunTraceDrawer/_components/TraceBody/TraceBody.tsx:58-63`,
+  `…/RunTraceDrawer/constants.ts:19`) — while
+  `server/src/modules/reviews/run-executor.ts:379,528` hard-codes
+  `specs_read: []` and `specs: null`, so nothing ever populates any of it. This is
+  the second instance of the "scaffolding built and never wired" pattern that
+  `specs/02-intent-layer.md` already named. Before speccing or estimating a "new"
+  prompt slot, grep `reviewer-core/src/prompt.ts` and
+  `server/src/vendor/shared/contracts/trace.ts` for it first — the remaining work
+  may be wiring one call site rather than building a feature, and the two
+  estimates differ by an order of magnitude.
+
+- **2026-08-20** — Renaming an agent is a seven-file edit, and nothing in the
+  repo catches a miss: agent files link each other with **relative markdown
+  links** (`[planner.md](planner.md)`), the two roster tables in
+  `.claude/agents/README.md` and `.claude/skills/README.md` link the file by
+  path, sibling agents name it in prose (`implementer.md` refuses to run and
+  tells the caller to run it), and root `INSIGHTS.md` cites the filename in a
+  Decisions entry. There is no link checker and no build step over `.claude/`,
+  so a stale `[planner.md](planner.md)` just resolves to nothing at read time.
+  After any agent rename run
+  `grep -rn '\bold-name\b' --include='*.md' . | grep -v node_modules | grep -v
+  server/clones` and expect zero hits other than deliberate historical quotes —
+  `INSIGHTS.md:39` quotes the external "planner/implementer role-splitting"
+  claim and must **not** be rewritten. The same holds for an agent's **step
+  numbers**, which sibling agents cite as prose anchors: inserting
+  `implementer.md`'s Step 5 (final self-check) renumbered plan-lifecycle 5→6 and
+  broke three live references — `plan-verifier.md` twice and one row in
+  `.claude/agents/README.md`'s rules table. Grep
+  `grep -rn '<agent>.md.*Step [0-9]' --include='*.md' .claude` after any step
+  insertion; `.claude/plans/archive/**` hits are historical records and stay.
+
 - **2026-08-09** — With the roster at seven agents, `description` being the *sole*
   auto-delegation signal stopped being trivia and became the main failure mode:
   `test-writer` collides with `implementer` (which also writes tests), and
@@ -179,12 +327,38 @@ _None yet._
 
 - **2026-08-09** — This repo's path→skill routing table and its per-package
   typecheck/test command table live in `.claude/skills/pr-self-review/SKILL.md`
-  Steps 2, 3 and 4, and are the single source of truth for both. `planner.md` and
+  Steps 2, 3 and 4, and are the single source of truth for both.
+  `implementation-planner.md` and
   `implementer.md` are written to `Read` those sections rather than carry their own
   copy — three copies of the `vendor/shared` mirror rule or the
   `pnpm` vs `npm` split would drift silently and only surface as an agent running
   the wrong command in the wrong package. Any new agent or skill that needs "which
   skills apply to this diff" points at those sections too.
+  **2026-08-20 update — catalog membership is not reachability.** Because binding
+  flows catalog → Step 3 → plan, a skill listed in `.claude/skills/README.md`
+  that no Step 3 row names can never be bound by `implementation-planner` and is
+  effectively dead: `corner-case-checklist` sat in that state, reachable only
+  because `test-writer.md` hard-codes it for itself. The second hole is subtler —
+  a Step 2 `Scope` cell whose wording does not literally match a Step 3
+  `Diff scope` row name falls through to the Full-stack fallback with no
+  package-specific skill; `e2e/**` classified as "Testing", a row Step 3 never
+  had. Both are now checkable in one place: the catalog's **Bindable?** column
+  (`yes` / `no` / `standing`) is the single flag, and the prose exclusion lists
+  that used to be duplicated in `pr-self-review` Step 3 and
+  `implementation-planner.md` Step 4 both defer to it. After adding a skill,
+  confirm it appears in *both* the catalog and a Step 3 row, or it is shipped
+  and unreachable.
+  **2026-08-22 update — a single source of truth is only as good as its last
+  check against the code it describes.** Step 4's `server/` row asserted
+  `pnpm test` was "hermetic `*.test.ts` only" while `server/package.json`'s
+  script is a bare `vitest run`; nobody had diffed the table against the
+  `package.json` since it was written, and because four agents read the row
+  instead of thinking, the wrong command reached every generated plan —
+  `implementation-planner.md`'s plan template shipped it as its worked example.
+  Referencing beats copying, but it converts one stale cell into a repo-wide
+  defect. After editing any Step 4 row, run it. `mcp/` had the opposite failure:
+  present in Step 4, absent from `implementer.md`'s and `test-writer.md`'s own
+  per-package tables, so a plan touching it got no lane at all.
 
 - **2026-08-03** — `.claude/skills/next-best-practices/` covers Next.js App
   Router *routing mechanics only* — the special-file table, `[slug]` /
@@ -219,6 +393,16 @@ _None yet._
   would have broken that test the moment the schema changed, even though no
   test file was touched. Any additive field on an already-fixture-tested
   contract needs the same treatment.
+  **2026-08-23 corollary — the rule covers new fields only, and a *type change*
+  has no escape hatch at all.** `RunTrace.specs_read` is `z.array(z.string())`
+  (`server/src/vendor/shared/contracts/trace.ts:94`) with three live consumers —
+  `TraceBody.tsx:63`, `RunTraceDrawer.test.tsx:15` and the fixture-parse tests —
+  so the "obvious" widening to an object array to carry per-document token counts
+  is breaking, and no `.default()` saves it. The way through is the same additive
+  move one level up: leave the old field alone and add a new one beside it
+  (`RunTrace.project_context` with `.default([])`), letting the old field stay the
+  denormalized view. Reach for that whenever a fixture-tested contract needs a
+  *richer* shape rather than a *new* one.
 
 ## Tool & Library Notes
 
@@ -237,6 +421,22 @@ _None yet._
   the plan file and loading any construction or review skill is exactly what drags a
   spec-conformance checker into the generic advice it exists not to give. An agent
   that omits `Skill` on purpose says so in its body — check there before adding it.
+
+- **2026-08-22** — `cd server && pnpm test` is **both** test lanes, not the
+  hermetic one: the script is a bare `vitest run` (`server/package.json`), so it
+  picks up all ten `*.it.test.ts` files and boots a testcontainers Postgres even
+  for a diff that touches no DB code. The lanes must be selected explicitly, as
+  `TESTING.md` "Running locally" does —
+  `pnpm exec vitest run --exclude '**/*.it.test.ts'` and
+  `pnpm exec vitest run .it.test` — and `pnpm exec` rather than a committed
+  script because `server/package.json` is `skip-worktree`. The failure is
+  two-sided: **without** Docker that lane exits `0` having run nothing, because
+  `server/test/helpers/pg.ts`'s `dockerAvailable()` skips it cleanly, so "green"
+  can mean 10 suites never executed. Any agent or CI step reporting a test result
+  must record `passed / failed / skipped`, not the exit code alone. Add
+  `--reporter=dot` while you are there — the default reporter over 47 files is
+  thousands of tokens per run, and an agent that runs the suite per plan step
+  pays it every time.
 
 - **2026-08-03** — `git diff` and `git diff --cached` never show untracked
   files — only tracked-file changes. Any tool that needs "all local changes

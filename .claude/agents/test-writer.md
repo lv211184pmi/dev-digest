@@ -20,12 +20,20 @@ testing skills itself (no plan does it for this agent), and stops at the product
 boundary: a test that cannot be written without changing source is reported, never forced
 through. It does not review, does not commit, and does not chase a coverage number.
 
+**Not in the default chain (2026-08-22).** `/implement` runs
+`implementer` → `plan-verifier` → `architecture-reviewer` → `pr-self-review` →
+`document-writer`, with no step for this agent. Routine tests are written by the implementer
+from steps [`implementation-planner.md`](implementation-planner.md) is required to include.
+This agent is for the jobs that do not fit that: a standalone testing pass over existing
+code, a delicate suite worth its own context, repairing a failing test, or backfilling
+coverage a plan skipped. It is invoked by hand — nothing will call it for you.
+
 ## Step 0 — Scope the subject (blocking)
 
 Before the first edit, establish:
 
 - **Which files or behaviour** is under test — the seam, not the internals.
-- **Which package** — `client/`, `server/`, `reviewer-core/`, `e2e/`.
+- **Which package** — `client/`, `server/`, `reviewer-core/`, `mcp/`, `e2e/`.
 - **Hermetic or DB-backed** — this decides the filename, and getting it wrong makes the
   test run in the wrong lane.
 
@@ -56,11 +64,18 @@ describes the library; the neighbouring test describes this repo.
 
 | Subject | Filename | Location | Command |
 |---|---|---|---|
-| React component / hook | `<name>.test.tsx` | `client/src/test/` | `cd client && pnpm test` |
-| server, no DB | `<name>.test.ts` | `server/test/` | `cd server && pnpm exec vitest run --exclude '**/*.it.test.ts'` |
-| server, DB-backed | `<name>.it.test.ts` | `server/test/` | `cd server && pnpm exec vitest run .it.test` (needs Docker; self-skips without) |
-| engine | `<name>.test.ts` | `reviewer-core/` per its own layout | `cd reviewer-core && npm test` |
+| React component / hook | `<name>.test.tsx` | `client/src/test/` | `cd client && pnpm exec vitest run --reporter=dot` |
+| server, no DB | `<name>.test.ts` | `server/test/` | `cd server && pnpm exec vitest run --exclude '**/*.it.test.ts' --reporter=dot` |
+| server, DB-backed | `<name>.it.test.ts` | `server/test/` | `cd server && pnpm exec vitest run .it.test --reporter=dot` (needs Docker; **self-skips without**) |
+| engine | `<name>.test.ts` | `reviewer-core/` per its own layout | `cd reviewer-core && npm test -- --reporter=dot` |
+| MCP server | `<name>.test.ts` | `mcp/` per its own layout | `cd mcp && npm test -- --reporter=dot` |
 | browser flow | `NN-name.flow.json` | `e2e/specs/` | `cd e2e && npm run e2e:hermetic` |
+
+While iterating on a single new test, run **that file alone**
+(`pnpm exec vitest run test/x.test.ts`); the lane command above is for the final pass.
+Never bare `cd server && pnpm test` — that script is unfiltered `vitest run` and boots
+testcontainers Postgres for both lanes. The canonical per-package table is **Step 4 of
+[`../skills/pr-self-review/SKILL.md`](../skills/pr-self-review/SKILL.md)**.
 
 Two hard rules from [`../../TESTING.md`](../../TESTING.md) Conventions:
 
@@ -79,6 +94,8 @@ tool, matched to the subject:
 | Subject | Load |
 |---|---|
 | client component / hook | `react-testing-library` (always) — plus `react-best-practices` only to understand the component under test |
+| client hook that queries or mutates the API | `react-query-patterns` — key shape and what the mutation must invalidate, so the test asserts the right cache effect |
+| server test, either lane | `vitest-server-testing` (always) — lane split, testcontainers fixture, Docker skip guard, `app.inject()`, mock adapters |
 | server route / plugin | `fastify-best-practices` |
 | DB-backed test, schema or query | `drizzle-orm-patterns` |
 | anything asserting a `@devdigest/shared` contract | `zod` |
@@ -113,8 +130,14 @@ exception to this rule**; a caller who wants the source fixed runs
 Run **only** the lane's command for the package touched — never the whole repo, and never
 a second package's suite because it was cheap.
 
-Report the real output. A failure that predates this change is reported as **pre-existing**
-with the evidence that it is, not fixed and not hidden.
+Report the real output, and report `passed / failed / skipped` — not just the exit code.
+A DB-backed test you just wrote **skips silently** when Docker is unreachable
+(`server/test/helpers/pg.ts` gates on `dockerAvailable()`), so `0 failed` can mean your new
+test never ran. Say so plainly: a test written but never executed is not a test yet.
+
+On a failure, re-run only the failing file with the default reporter for the diagnostic, and
+paste that file's output rather than the suite's. A failure that predates this change is
+reported as **pre-existing** with the evidence that it is, not fixed and not hidden.
 
 ## Report format (mandatory, always emitted)
 
@@ -135,11 +158,16 @@ with the evidence that it is, not fixed and not hidden.
 ## Not covered and why
 - <the gap> — <why it is a deliberate omission under the typological philosophy>
 
-## Verification output
-<the actual command output for anything that failed; "all green" otherwise>
+## Verification
+| Command | Exit | passed / failed / skipped |
+|---|---|---|
+
+<the failing file's output for anything that failed; "all green" otherwise. If a new test
+skipped for want of Docker, say so here — it has not run yet.>
 
 ## Handoff
 Not done here, for the caller to run: review, commit, `engineering-insights`.
+If this ran mid-chain, re-run `pr-self-review` — new files change the diff it gates on.
 ```
 
 Rules attached to the template:
@@ -177,3 +205,5 @@ Rules attached to the template:
 - Editing production source.
 - Running the whole repo's suites for a one-package change.
 - Declaring done without the `corner-case-checklist` pass.
+- Reporting green on a lane where the new test skipped for want of Docker.
+- Bare `cd server && pnpm test`, which runs both lanes.

@@ -8,8 +8,16 @@
  * lazy-initialised (loading the BPE ranks is the heavy part) and any failure
  * falls back to the `ceil(chars / 4)` heuristic — the renderer must never throw.
  *
- * Scope: in-process, ONLY under modules/repo-intel. Swappable in tests via a
- * mock counter (ContainerOverrides.tokenizer).
+ * Scope: in-process, under TWO consumers now — modules/repo-intel's repo-map
+ * budget search (above), and modules/project-context's run-time token
+ * estimation (`domain-services/resolve.ts`, Phase 4). The two consumers
+ * estimate differently: discovery (`domain-services/discovery.ts`,
+ * `estimateTokens`) estimates from a file's BYTE COUNT via the same
+ * `ceil(chars / 4)` ratio, without ever reading the file, so a repo can be
+ * listed cheaply; run-time resolution counts real tokens over text that has
+ * already been read (and, when over the per-document cap, already
+ * truncated). Swappable in tests via a mock counter
+ * (ContainerOverrides.tokenizer).
  */
 import { getEncoding, type Tiktoken } from 'js-tiktoken';
 

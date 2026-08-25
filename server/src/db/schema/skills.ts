@@ -1,6 +1,7 @@
-import { pgTable, uuid, text, integer, boolean, jsonb, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, jsonb, primaryKey, index } from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces } from './core';
+import { repos } from './repos';
 
 export const skills = pgTable('skills', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -33,4 +34,26 @@ export const skillVersions = pgTable(
     createdAt: now(),
   },
   (t) => ({ pk: primaryKey({ columns: [t.skillId, t.version] }) }),
+);
+
+/**
+ * Project Context — repo-scoped `.md` documents a skill attaches so their
+ * text is injected into the prompt. Same shape as `agentContextDocs`.
+ */
+export const skillContextDocs = pgTable(
+  'skill_context_docs',
+  {
+    skillId: uuid('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    repoId: uuid('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    order: integer('order').notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.skillId, t.repoId, t.path] }),
+    repoPathIdx: index('skill_context_docs_repo_path_idx').on(t.repoId, t.path),
+  }),
 );

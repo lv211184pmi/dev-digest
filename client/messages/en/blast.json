@@ -1,4 +1,5 @@
 {
+  "title": "Blast radius",
   "stat": {
     "symbols": "symbols",
     "callers": "callers",
@@ -6,13 +7,29 @@
     "crons": "cron/jobs"
   },
   "view": {
-    "tree": "tree",
-    "graph": "graph"
+    "tree": "Tree",
+    "graph": "Graph"
   },
   "callerCount": "{count} callers",
   "noDownstream": "{count} changed symbol(s), no downstream callers found.",
   "graph": {
     "empty": "No downstream callers to graph.",
     "ariaLabel": "Blast radius graph"
-  }
+  },
+  "coverage": {
+    "partial": "Partial index",
+    "unavailable": "No index",
+    "notCoveredLabel": "Not covered by the index",
+    "hint": "This map is incomplete — it is not a clean bill of health."
+  },
+  "empty": {
+    "title": "No impact map yet",
+    "body": "DevDigest has not indexed this repository, so it cannot trace what these changes reach. Re-analyze the repository to build the index.",
+    "unindexedTitle": "Index unavailable",
+    "noSymbolsTitle": "No indexed symbols in this diff",
+    "noSymbolsBody": "The changed files declare nothing the index recognises as an importable symbol."
+  },
+  "summarize": "Explain impact",
+  "resummarize": "Re-explain",
+  "stale": "Summary is out of date"
 }

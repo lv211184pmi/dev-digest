@@ -58,6 +58,8 @@ export interface BlastChangedSymbol {
   file: string;
   name: string;
   kind: string;
+  /** 1-based declaration line, so the symbol's own decl is a clickable path:line. */
+  line: number;
 }
 
 export interface BlastCallerRow {
@@ -77,11 +79,36 @@ export interface BlastResult {
   /** "METHOD /path" (via extractEndpoints / file_facts) — flat union. */
   impactedEndpoints: string[];
   /**
+   * Cron expressions/labels reached the same way — flat union. Carried explicitly
+   * rather than derived from `factsByFile`, which is absent on the degraded path.
+   */
+  impactedCrons: string[];
+  /**
    * Per-caller-file precomputed facts, so consumers (blast) can attribute
    * endpoints/crons to the changed symbol whose callers live in that file.
    * Present on the persistent (non-degraded) path; absent otherwise.
    */
   factsByFile?: Record<string, { endpoints: string[]; crons: string[] }>;
+  degraded?: boolean;
+  reason?: DegradedReason;
+}
+
+/**
+ * One file reachable from the changed set by a REVERSE walk of `file_edges`
+ * ("who imports this?"), plus whatever HTTP endpoints / crons it declares.
+ */
+export interface ImpactedFileRow {
+  file: string;
+  /** 1 = imports a changed file directly, 2 = imports a level-1 importer. */
+  depth: 1 | 2;
+  /** "METHOD /path", from file_facts. */
+  endpoints: string[];
+  /** From file_facts. */
+  crons: string[];
+}
+
+export interface ImpactedFilesResult {
+  files: ImpactedFileRow[];
   degraded?: boolean;
   reason?: DegradedReason;
 }
@@ -145,6 +172,12 @@ export interface RepoIntel {
 
   // --- Reads --------------------------------------------------------------
   getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  /**
+   * Reverse-crawl `file_edges` from the changed files to depth `BFS_DEPTH` and
+   * join `file_facts`, so a consumer can see which endpoints/crons sit downstream.
+   * Persistent index only — never falls through to a full-tree ripgrep scan.
+   */
+  getImpactedFiles(repoId: string, changedFiles: string[]): Promise<ImpactedFilesResult>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

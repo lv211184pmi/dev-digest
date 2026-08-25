@@ -11,6 +11,7 @@ import { taskLine } from './helpers.js';
 import { loadDiff } from './diff-loader.js';
 import { deriveIntent } from './intent/service.js';
 import { renderIntentBlock } from './intent/render.js';
+import type { ResolvedProjectContext } from '../project-context/domain-services/resolve.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -266,6 +267,19 @@ export class ReviewRunExecutor {
             : 'Skills: no enabled skills linked to this agent',
       );
 
+      // Project Context — the agent's own attached documents plus its
+      // enabled linked skills' attached documents (Phase 4). Resolved
+      // ONCE here, before the engine call, exactly like the enrichment
+      // above — never re-resolved per map-reduce chunk (D6: an in-flight
+      // run must not disagree with itself about its own context).
+      const projectContext = await this.resolveProjectContext(
+        workspaceId,
+        agent,
+        repo,
+        runLog,
+        skipSkills,
+      );
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -286,6 +300,12 @@ export class ReviewRunExecutor {
         // Skills (L02) — omitted (assemblePrompt leaves the section out) when
         // there are none linked/enabled, or when skipped for this run.
         ...(skillBodies.length > 0 ? { skills: skillBodies } : {}),
+        // Project Context — inherited documents belong in the untrusted
+        // `## Project context` slot (R10), never in `skills` (which renders
+        // as the trusted `## Skills / rules` block). Omitted, same
+        // omit-when-empty contract as `repoMap`/`callers` above, when
+        // nothing resolved.
+        ...(projectContext.specs.length > 0 ? { specs: projectContext.specs } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
@@ -376,7 +396,11 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // `included`/`truncated` paths only — the denormalised view. The
+        // full per-document status list (incl. every skipped one) is
+        // `project_context` below.
+        specs_read: projectContext.specsRead,
+        project_context: projectContext.injected,
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -500,6 +524,56 @@ export class ReviewRunExecutor {
   }
 
   /**
+   * Project Context (Phase 4) — the agent's own attached documents plus its
+   * enabled linked skills' attached documents, read from the clone once.
+   * Best-effort, same shape as `buildCallersDigest`/`buildRepoMapDigest`
+   * above: a resolution failure is logged and the run continues with none —
+   * a document problem must never fail a run (AC 18).
+   *
+   * **`skipSkills` also suppresses skill-inherited documents.** The spec
+   * does not settle whether the `RunRequest.skip_skills` control experiment
+   * ("run without skills for this one run") extends to skills' *attached
+   * documents* as well as their bodies. Default taken here: yes — the
+   * experiment's purpose is "run without this skill's influence", and an
+   * inherited document is part of that influence just as much as the
+   * skill's body text is. The agent's own direct attachments are
+   * unaffected either way. Implemented by omitting
+   * `skillContextDocsForAgent` from the per-call arguments passed to
+   * `container.projectContext.resolveForRun`, which resolves the agent's
+   * own documents only in that case (see `resolveForRun`'s doc comment).
+   *
+   * `container.projectContext` is the container-composed service —
+   * `reposRepo`/`fileSource`/`countTokens` only, built once at the
+   * composition root the same way `agentsRepo`/`skillsRepo` are. This
+   * method supplies the two per-run functions (`agentContextDocs`,
+   * `skillContextDocsForAgent`) as call arguments rather than constructing
+   * `RepoRepository`/`CloneFileSource`/`ProjectContextService` inline.
+   */
+  private async resolveProjectContext(
+    workspaceId: string,
+    agent: AgentRow,
+    repo: typeof schema.repos.$inferSelect,
+    runLog: RunLogger,
+    skipSkills?: boolean,
+  ): Promise<ResolvedProjectContext> {
+    try {
+      return await this.container.projectContext.resolveForRun(
+        workspaceId,
+        agent.id,
+        repo,
+        runLog,
+        (agentId, repoId) => this.agents.contextDocs(agentId, repoId),
+        skipSkills
+          ? undefined
+          : (agentId: string) => this.container.skillsRepo.contextDocsForAgent(agentId),
+      );
+    } catch (err) {
+      runLog.info(`project context: resolution failed — ${(err as Error).message}`);
+      return { specs: [], injected: [], specsRead: [] };
+    }
+  }
+
+  /**
    * A minimal RunTrace whose `log` is the run's full SSE buffer — persisted on
    * failure/cancel (and pre-work failures) so the events (and WHY it failed)
    * survive a reload, not just the in-memory stream.
@@ -526,6 +600,10 @@ export class ReviewRunExecutor {
       raw_output: '',
       memory_pulled: [],
       specs_read: [],
+      // This path runs on failure/cancel and on pre-work failure — before
+      // (or instead of) project-context resolution, so nothing was ever
+      // resolved for it to record.
+      project_context: [],
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
     };
   }

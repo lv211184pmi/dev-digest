@@ -68,7 +68,7 @@ was intentional.
   open/focus/scroll to) with a lazy `useState(() => …)` initializer and call
   it done — `FindingsPanel`'s `focusIdx`/`showOutOfScope` were seeded this way
   from `targetFindingId` on the assumption that `{tab === "x" && <XTab
-  .../>}` (`page.tsx:144-181`) always remounts the receiver fresh when a new
+.../>}` (`page.tsx:144-181`) always remounts the receiver fresh when a new
   target arrives, since Files changed and Agent runs are mutually-exclusive
   tabs. False in the common case: `ReviewRunAccordion` only remounts
   `FindingsPanel` the FIRST time a run opens; the newest run is
@@ -82,7 +82,7 @@ was intentional.
   live-syncing `useEffect` keyed on `[targetFindingId, targetFindingNonce]`
   (nonce bumps on every click, even re-clicking the same id), plus a new
   `expandNonce`/`shouldExpand` pair on `FindingCard` since `defaultExpanded`
-  is *also* mount-only and can't re-open an already-mounted, already-collapsed
+  is _also_ mount-only and can't re-open an already-mounted, already-collapsed
   card either. Lesson: before relying on a "this receiver always remounts"
   assumption, verify EVERY ancestor between the state owner and the receiver
   actually unmounts on every target change — one `defaultOpen`/
@@ -98,17 +98,73 @@ was intentional.
   default-first one, or one the user had manually opened) stuck open, so a
   click could end with two cards expanded at once. Fix: pass the SAME nonce
   to every card in the list plus a per-card `shouldExpand: f.id ===
-  targetFindingId` boolean, and have the effect do `setExpanded(!!shouldExpand)`
+targetFindingId` boolean, and have the effect do `setExpanded(!!shouldExpand)`
   (not `setExpanded(true)`) on every bump — every non-target card explicitly
   collapses on the same tick the target expands.
   `client/src/app/repos/[repoId]/pulls/[number]/_components/FindingCard/FindingCard.tsx:52`
 
 ## Codebase Patterns
 
+- **2026-08-25** — The vendored `Checkbox` (`src/vendor/ui/kit/Checkbox.tsx`)
+  derives its accessible name from its native `<label>`'s rendered text
+  content, in DOM order — it exposes no separate `aria-label`/`name` prop.
+  Splitting a row's *visible* label (filename-first, directory-second, per
+  R6) from its *accessible* name (the full repo-relative path, per R22)
+  needs a visually-hidden span carrying the full path placed first in the
+  label, with the sighted filename/dir spans marked `aria-hidden` so they
+  don't concatenate into the computed name. Get the ordering wrong (hidden
+  span not first, or missing `aria-hidden` on the sighted siblings) and the
+  accessible name silently becomes the visible DOM order instead of the
+  full path — no type error, no visible symptom, only a screen-reader/
+  testing-library query mismatch.
+  `client/src/components/context-tab/ContextTab.tsx:154-166`
+- **2026-08-24** — A new App Router page is unreachable from the UI until it
+  gets an entry in `NAV` (`src/vendor/ui/nav.ts`) — the single registry behind
+  three consumers: the sidebar (`vendor/ui/shell/Sidebar.tsx:45`), the ⌘K
+  palette (`components/app-shell/hooks/useShellCommands.ts:21`) and the
+  `g`-then-key shortcuts (`components/app-shell/hooks/useGlobalShortcuts.ts:45`).
+  The Project Context page shipped complete but invisible: the route, `GET
+  /repos/:id/project-context`, an `activeKeyFor()` branch already returning
+  `"context"` (`components/app-shell/helpers.ts:30`) and `nav.context` /
+  `nav.onboarding-tour` keys already in `messages/en/shell.json` were all in
+  place — only the `NAV` item was missing, so nothing anywhere linked to
+  `/repos/:repoId/context`. When adding a route, check all five. Note the
+  palette resolves its label via ``t(`nav.${it.key}`)`` while `NavItem` renders
+  the hardcoded `item.label` (`vendor/ui/shell/NavItem.tsx:38`) — set both, and
+  keep them identical. `nav.ts` is the standing exception to "`src/vendor/ui`
+  is off-limits" (see the 2026-08-01 entry below): it is our own route
+  registry, not vendored third-party code, and commit `6ed1c96` already edited
+  it to add the Skills item.
+  `client/src/vendor/ui/nav.ts:21`
+
+- **2026-08-16** — Never render an unbounded list of repo-relative paths as one
+  `array.join(", ")` string inside a wrapping block, AND that alone does not
+  fix path overflow inside a flex/grid layout — both were needed for
+  `BlastRadiusCard`. First pass: switched `index.files_not_covered` from
+  `array.join(", ")` + `wordBreak: "break-all"` (which split paths mid-segment,
+  `client/messages/en/age` / `nts.json`, with no visual continuation cue) to
+  one `PathLink` per line, matching `SymbolNode`'s existing caller-list pattern
+  (`VISIBLE_CALLERS`/`VISIBLE_NOT_COVERED`, "+N more"). **Still overflowed the
+  card in a live screenshot** — the real cause is that flex/grid _items_
+  default to `min-width: auto`, i.e. never narrower than their content's
+  min-content size, and a path with no spaces has a min-content size equal to
+  its full unbroken width. `word-break: break-word` does not change
+  min-content sizing (CSS Text spec: only a last-resort break at layout time),
+  so the item — and the card itself, also a grid item in `OverviewTab`'s
+  `minmax(0, 1fr)` grid — still got pushed wider than its track and the text
+  visibly spilled past the rounded border. **Fix:** `overflow-wrap: anywhere`
+  (not `break-word`) on every text container that can hold a raw path
+  (`noticeBody`, `notCoveredFile`, the new `pathWrap` around every `PathLink`
+  in a flex row) plus explicit `minWidth: 0` on each flex/grid item in the
+  chain, including `s.card` itself. `anywhere` is the one value that also
+  shrinks min-content, which is what actually stops the push-wide.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusCard/styles.ts:6`
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusCard/BlastRadiusCard.tsx:43`
+
 - **2026-08-12** — `FindingCard`'s `data-finding-id={f.id}` attribute and its
   `focused` prop were already wired in before any caller used them for
   cross-component targeting — `FindingsPanel` only ever set `focused={i ===
-  focusIdx}` with `focusIdx` defaulting to `0`, and nothing read
+focusIdx}` with `focusIdx` defaulting to `0`, and nothing read
   `data-finding-id`. Implementing "Files changed → Agent runs" (jump to one
   finding's card from its Smart Diff line) needed exactly this: scope a
   `querySelectorAll('[data-finding-id]')` to the panel root, match on
@@ -151,6 +207,20 @@ was intentional.
 
 ## Tool & Library Notes
 
+- **2026-08-16** — Mermaid's `click <id> href "<url>" <target>` line only opens
+  a real anchor with `target="<target>"` when `<target>` is a **bare, unquoted**
+  token (`_blank`, `_self`, …). Quoting it (`click n0 href "url" "_blank"`)
+  parses without error and still emits `<a href="url">` — but mermaid reads the
+  quoted string as a tooltip argument, silently drops it, and the link opens in
+  the _same_ tab. Verified empirically against the installed `mermaid` package
+  by patching `flowDiagram-*.mjs`'s `setLink` to log its `target` arg: only the
+  unquoted-target form populates it. This works fine under
+  `securityLevel: "strict"` too — that setting only gates `click <id>
+call fn()` JS callbacks (`setClickFun` no-ops unless `securityLevel ===
+"loose"`); the `href` form's `setLink` has no such gate, so adding
+  click-to-GitHub links to a diagram never requires loosening security level.
+  `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusCard/graph.ts:104`
+
 - **2026-08-10** — `@testing-library/user-event` is not a `client/`
   dependency. Every interaction test in this package, including new
   `SmartDiffViewer.test.tsx`/`DiffTab.test.tsx`, uses `fireEvent` from
@@ -161,8 +231,8 @@ was intentional.
 ## Recurring Errors & Fixes
 
 - **2026-08-01** — `TS7053: … expression of type 'Severity' can't be used to
-  index type '{ CRITICAL: number; WARNING: number; SUGGESTION: number; }'.
-  Property 'INFO' does not exist` means `Severity` was imported from
+index type '{ CRITICAL: number; WARNING: number; SUGGESTION: number; }'.
+Property 'INFO' does not exist` means `Severity` was imported from
   `@devdigest/ui` when it should have come from `@devdigest/shared`. The two are
   different types with the same name: the UI token map carries a fourth `INFO`
   entry (`src/vendor/ui/primitives/tokens.ts:5`) that the Zod enum

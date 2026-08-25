@@ -50,6 +50,28 @@ export function wrapUntrusted(label: string, content: string): string {
   return `<untrusted source="${label}">\n${safe}\n</untrusted>`;
 }
 
+/**
+ * Sanitize a document `path` before it is interpolated into the `### <path>`
+ * heading (and the `wrapUntrusted` source label), both of which sit OUTSIDE
+ * the `<untrusted>` fence as our own trusted text. `safeRepoPath`
+ * (`server/src/modules/reviews/intent/sources.ts`) only confines a path to
+ * the repo root — it does NOT reject structural or delimiter characters
+ * inside a path segment. A crafted path (e.g. one containing a newline
+ * followed by `</untrusted>`) could let the document's own path, not just
+ * its text, break out of the heading line or the fence below it. Strip
+ * control characters (including newlines), angle brackets and double
+ * quotes rather than trusting the path verbatim — the same "reject
+ * anything unexpected" posture as `safeRepoPath`. Double quotes matter
+ * because the sanitized path also lands inside the `wrapUntrusted` source
+ * attribute (`<untrusted source="spec:${safePath}">`); a legal filename
+ * character like `"` would otherwise let the path inject a fake attribute
+ * into that trusted opening tag.
+ */
+function sanitizeHeadingPath(path: string): string {
+  // eslint-disable-next-line no-control-regex -- deliberately stripping C0/DEL controls
+  return path.replace(/[\x00-\x1f\x7f<>"]/g, '');
+}
+
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
@@ -60,8 +82,15 @@ export interface PromptParts {
   skills?: string[];
   /** Relevant memory items (trusted, curated). */
   memory?: string[];
-  /** Project-context spec chunks (untrusted content). */
-  specs?: string[];
+  /**
+   * Project-context documents (untrusted content). Each `path` is
+   * repo-relative and is emitted as a `### <path>` heading OUTSIDE the
+   * `<untrusted>` wrapper (it is our own text, not the document's) — this is
+   * what lets a finding's `rationale` name the document it cites while `file`
+   * stays a diff file (AC 26). The document's own `text` never escapes the
+   * wrapper.
+   */
+  specs?: Array<{ path: string; text: string }>;
   /**
    * Repo skeleton / map (T3): top-ranked symbols by signature, token-budgeted.
    * Untrusted (derived from repo code) — delimiter-wrapped. Rendered before
@@ -204,7 +233,12 @@ export function assemblePrompt(
       : undefined;
   const specsBlock =
     parts.specs && parts.specs.length > 0
-      ? parts.specs.map((s, i) => wrapUntrusted(`spec-${i}`, s)).join('\n\n')
+      ? parts.specs
+          .map((s) => {
+            const safePath = sanitizeHeadingPath(s.path);
+            return `### ${safePath}\n${wrapUntrusted(`spec:${safePath}`, s.text)}`;
+          })
+          .join('\n\n')
       : undefined;
 
   const rawDescription =

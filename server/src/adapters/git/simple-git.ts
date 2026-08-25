@@ -1,7 +1,7 @@
 import { simpleGit, type SimpleGit } from 'simple-git';
-import { join } from 'node:path';
-import { mkdir, readFile, access, rm } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { mkdir, readFile, readdir, stat, access, rm } from 'node:fs/promises';
+import { constants, type Dirent } from 'node:fs';
 import type {
   GitClient,
   RepoRef,
@@ -128,6 +128,117 @@ export class SimpleGitClient implements GitClient {
 
   async readFile(repo: RepoRef, path: string): Promise<string> {
     return readFile(join(this.clonePathFor(repo), path), 'utf8');
+  }
+
+  /**
+   * Recursive walk modelled on `repo-intel/pipeline/walk.ts`: skip an
+   * unreadable directory rather than aborting, never follow a symlink, skip
+   * `node_modules`/`.git` at any depth, and stop once one entry BEYOND
+   * `opts.maxFiles` has been collected (no collect-then-slice over the whole
+   * tree — that is what R35's 1s budget forbids; this is one extra entry,
+   * not the whole remainder). Directory entries are sorted before recursion
+   * so the cutoff point is reproducible across runs on the same tree; the
+   * final list is sorted by path again for a stable return order.
+   *
+   * The result can therefore be up to `opts.maxFiles + 1` entries long —
+   * deliberately: `list()`
+   * (`modules/project-context/application-services/project-context-service.ts`)
+   * needs that one extra entry to distinguish "exactly `maxFiles` matching
+   * documents, nothing left out" from "the cap was reached and more exist",
+   * which comparing the returned length against `maxFiles` with `>=` cannot
+   * do — a repo with exactly `maxFiles` documents would false-positive as
+   * truncated. `list()` is the layer that slices back down to `maxFiles`
+   * before returning to the caller.
+   */
+  async listFiles(
+    repo: RepoRef,
+    opts: { globs: string[]; maxFiles: number },
+  ): Promise<Array<{ path: string; bytes: number; modifiedAt: Date }>> {
+    const root = this.clonePathFor(repo);
+    if (!(await this.exists(root))) return [];
+    const matchers = parseSimpleGlobs(opts.globs);
+    const out: Array<{ path: string; bytes: number; modifiedAt: Date }> = [];
+    await walkForMatches(root, root, matchers, opts.maxFiles + 1, out);
+    out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    return out;
+  }
+}
+
+/**
+ * Parses `**\/<segment>/**\/*.ext` glob strings into a (root-segment,
+ * extension) matcher. This deliberately matches ONLY that simple shape — the
+ * canonical discoverable-path RULE (a directory segment equal to a
+ * configured root, and a `.md` extension) is owned by
+ * `server/src/modules/project-context/domain-services/discovery.ts`'s
+ * `matchesRoot`. Kept inline here (not imported from that module) so the git
+ * adapter stays free of an application-module dependency — see Phase 3
+ * plan's "Open questions".
+ */
+function parseSimpleGlobs(globs: string[]): Array<{ segment: string; ext: string }> {
+  const out: Array<{ segment: string; ext: string }> = [];
+  for (const glob of globs) {
+    const m = /^\*\*\/([^/*]+)\/\*\*\/\*(\.[^/*]+)$/.exec(glob);
+    if (m) out.push({ segment: m[1]!, ext: m[2]! });
+  }
+  return out;
+}
+
+/** `relPath` matches when its filename ends a matcher's extension AND a
+ *  directory segment (never the filename itself) equals the matcher's root. */
+function matchesAnyGlob(relPath: string, matchers: Array<{ segment: string; ext: string }>): boolean {
+  if (matchers.length === 0) return false;
+  const segments = relPath.split('/');
+  if (segments.length < 2) return false; // no directory segment — a bare filename never matches
+  const name = segments[segments.length - 1]!;
+  const dirSegments = segments.slice(0, -1);
+  return matchers.some((m) => name.endsWith(m.ext) && dirSegments.includes(m.segment));
+}
+
+async function walkForMatches(
+  root: string,
+  dir: string,
+  matchers: Array<{ segment: string; ext: string }>,
+  /** The hard stop `out.length` must reach — callers pass `opts.maxFiles + 1`
+   *  from `listFiles()` so the caller can tell "exactly at the cap" apart
+   *  from "truncated" (see `listFiles()`'s doc comment). */
+  maxFiles: number,
+  out: Array<{ path: string; bytes: number; modifiedAt: Date }>,
+): Promise<void> {
+  if (out.length >= maxFiles) return;
+  let entries: Dirent[];
+  try {
+    entries = (await readdir(dir, { withFileTypes: true })) as Dirent[];
+  } catch {
+    // Unreadable directory (permissions, dangling symlink target) — skip
+    // cleanly so the walk keeps making progress elsewhere in the tree.
+    return;
+  }
+  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+  for (const entry of entries) {
+    if (out.length >= maxFiles) return;
+    if (entry.isSymbolicLink()) continue; // never follow symlinks (loops, escapes)
+    const name = entry.name;
+
+    if (entry.isDirectory()) {
+      if (name === 'node_modules' || name === '.git') continue;
+      await walkForMatches(root, join(dir, name), matchers, maxFiles, out);
+      continue;
+    }
+
+    if (!entry.isFile()) continue;
+
+    const full = join(dir, name);
+    const rel = relative(root, full).split(sep).join('/');
+    if (!matchesAnyGlob(rel, matchers)) continue;
+
+    let st;
+    try {
+      st = await stat(full);
+    } catch {
+      continue;
+    }
+    out.push({ path: rel, bytes: st.size, modifiedAt: st.mtime });
   }
 }
 

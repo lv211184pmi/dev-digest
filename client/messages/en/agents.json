@@ -46,6 +46,7 @@
     "tabs": {
       "config": "Config",
       "skills": "Skills",
+      "context": "Context",
       "evals": "Evals",
       "stats": "Stats",
       "ci": "CI"
@@ -95,5 +96,28 @@
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."
+  },
+  "context": {
+    "heading": "Project context",
+    "counter": "{n} of {m} attached",
+    "filterPlaceholder": "Filter by path…",
+    "filterLabel": "Filter documents by path",
+    "noMatches": "No documents match that filter.",
+    "dragDisabled": "Clear the filter to reorder.",
+    "preview": "Preview",
+    "tokens": "≈{count} tokens attached",
+    "serializesAs": "Serializes as",
+    "caption": "The full text of each attached document is injected at run time — this preview shows only paths and token counts.",
+    "noRepo": "Select a repo to attach project-context documents.",
+    "empty": "No documents discovered for this repo yet.",
+    "orderHint": "Order matters — this is the order documents are injected into the prompt. Changes save as you make them.",
+    "drawer": {
+      "bytes": "Bytes",
+      "tokens": "Tokens",
+      "usedBy": "Used by {count} agents",
+      "truncated": "Truncated to the same slice a review run would inject.",
+      "loadError": "Couldn't load this document's content",
+      "close": "Close preview"
+    }
   }
 }

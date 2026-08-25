@@ -9,6 +9,7 @@ import { EmptyState, Tabs } from "@devdigest/ui";
 import type { Agent } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { SkillsTab } from "./_components/SkillsTab";
+import { ContextTab } from "./_components/ContextTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
 
@@ -20,6 +21,7 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
   let content: React.ReactNode;
   if (tab === "config") content = <ConfigTab agent={agent} />;
   else if (tab === "skills") content = <SkillsTab agentId={agent.id} />;
+  else if (tab === "context") content = <ContextTab agentId={agent.id} />;
   else {
     content = (
       <EmptyState

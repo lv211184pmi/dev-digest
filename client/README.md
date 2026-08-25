@@ -29,16 +29,32 @@ flowchart TD
 
   AGENTS["/agents"] --> AGENT["/agents/:id<br/>editor (config)"]
   SETTINGS["/settings/:section<br/>API keys · models"]
+  PULLS --> CONTEXT["/repos/:repoId/context<br/>project context browser (read-only)"]
 
   PULLS -->|"GET /repos/:id/pulls · /repos/:id/index-state"| API
   PR -->|"GET /pulls/:id · /reviews · /pulls/:id/comments · /pulls/:id/smart-diff · /pulls/:id/blast<br/>POST /pulls/:id/review · /pulls/:id/blast · /findings/:id/(accept|dismiss)"| API
-  AGENTS -->|"/agents · /agents/:id"| API
+  AGENTS -->|"/agents · /agents/:id · /agents/:id/context-docs"| API
   SETTINGS -->|"/settings · /providers"| API
+  CONTEXT -->|"GET /repos/:id/project-context(/usage|/doc)"| API
 ```
 
 Cross-cutting chrome lives in `src/components/app-shell` (nav, breadcrumbs,
 `g`-then-key shortcuts). Pages are thin; feature logic sits in colocated
 `_components/<Name>/` folders, each with its own `*.test.tsx`.
+
+`src/components/context-tab/` is a shared app-level component (not
+`src/vendor/ui`) for an agent's or a skill's Project Context document
+attachments — mounted from both the Agent editor (`/agents/:id`) and the
+Skill detail pane (`/skills`), so the two owners never diverge on the
+attach/detach/reorder behaviour. There is no staged Save/Discard: each tick,
+untick or drop persists immediately via `useSetAgentContextDocs`/
+`useSetSkillContextDocs` (`src/lib/hooks/project-context.ts`), optimistically
+and with cancel-and-replace for a fast double-action. The tab renders one
+merged list (attached first, then unattached), a path filter, and an inline
+preview drawer via `useProjectContextDoc`, which also backs the
+`/repos/:repoId/context` page's own preview pane. See
+[`../docs/project-context.md`](../docs/project-context.md) for the full
+discovery-through-injection picture.
 
 ### Cards with two asymmetric calls
 

@@ -51,12 +51,25 @@
       "memory": "Memory (dynamic)",
       "repoMap": "Repo skeleton — repo-intel (dynamic)",
       "specs": "Project context (dynamic)",
+      "projectContext": "Project context — attached specs (untrusted)",
       "callers": "Callers of changed symbols — repo-intel (dynamic)",
       "user": "User / diff (dynamic)",
       "copy": "Copy",
       "fullscreen": "Open fullscreen",
       "search": "Search in this block…",
       "noMatches": "No matches for “{q}”."
+    },
+    "projectContext": {
+      "heading": "Project context",
+      "inheritedFrom": "via {skill}",
+      "tokens": "≈{count} tok",
+      "status": {
+        "truncated": "Truncated",
+        "skippedBudget": "Skipped — over budget",
+        "skippedMissing": "Skipped — missing",
+        "skippedEmpty": "Skipped — empty",
+        "skippedOtherRepo": "Skipped — other repo"
+      }
     },
     "tools": {
       "args": "args",

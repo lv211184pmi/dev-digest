@@ -45,7 +45,27 @@ _None yet._
 
 ## What Doesn't Work
 
-_None yet._
+- **2026-08-23** — `wrapUntrusted()` fences document *text*, but an identifier
+  interpolated **outside** the wrapper (e.g. a `### <path>` heading emitted next
+  to `<untrusted>` on purpose, so a finding can cite the path) is not fenced by
+  it and needs its own sanitization. A crafted filename containing a newline or
+  `<`/`>` could otherwise break out of the heading. **Fixed in
+  `reviewer-core/src/prompt.ts` via `sanitizeHeadingPath()`**, applied to the
+  path before it is used both in the heading and in the `wrapUntrusted` source
+  label. General rule: any untrusted-adjacent identifier placed outside an
+  `<untrusted>…</untrusted>` block needs the same stripping treatment as the
+  wrapped content, not just the content inside the wrapper. **Sharpened
+  2026-08-24**: the first cut of `sanitizeHeadingPath()` stripped control
+  characters and `<`/`>` but not `"` — since the sanitized path also lands
+  inside a quoted attribute (`wrapUntrusted`'s `source="spec:${path}"`), a path
+  containing `"` (a legal filename character) broke out of that attribute and
+  injected a fake-looking `trusted="true"`-style attribute into the trusted
+  opening tag, even though the tag itself couldn't be reopened/closed. **Fixed
+  2026-08-24** by adding `"` to the stripped set. The sharper general rule: a
+  sanitization allowlist must be checked against **every** syntactic context
+  the sanitized value gets interpolated into (heading text *and* a quoted
+  attribute here), not just the first/most obvious one — enumerate every call
+  site before declaring a sanitizer complete.
 
 ## Codebase Patterns
 

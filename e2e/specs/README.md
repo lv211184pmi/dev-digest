@@ -5,7 +5,9 @@ discovers them by the `.flow.json` suffix and runs them in filename order
 against one shared session, so this README is ignored by the runner.
 
 Written specs for this package go in `../docs/` instead — do not add prose files
-here.
+here. An **EARS feature spec** whose behaviour happens to be covered by a flow goes in the
+root [`../../specs/`](../../specs/), never here: this directory stays `.flow.json` only,
+and the root README's routing table is the authority.
 
 Adding a flow:
 

@@ -14,6 +14,7 @@ import { TraceSection } from "../TraceSection";
 import { ToolCallRow } from "../ToolCallRow";
 import { PromptBlock } from "../PromptBlock";
 import { FindingsSection } from "../FindingsSection";
+import { ProjectContextRow } from "../ProjectContextRow";
 
 function Stat({ label, val }: { label: string; val: React.ReactNode }) {
   return (
@@ -68,6 +69,11 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
               )}
             </div>
           </Row>
+          {trace.project_context.length > 0 && (
+            <Row label={t("trace.projectContext.heading")}>
+              <ProjectContextRow docs={trace.project_context} />
+            </Row>
+          )}
         </div>
       </TraceSection>
 
@@ -98,11 +104,20 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
         {trace.prompt_assembly.memory != null && (
           <PromptBlock label={t("trace.prompt.memory")} text={trace.prompt_assembly.memory} color={PROMPT_COLORS.memory} />
         )}
+        {/* AC 21 / D7: the drawer's row order is System -> Skills -> Project
+            context -> Repo skeleton -> Callers -> User, which is the
+            editorial order AC 21 specifies — NOT reviewer-core/src/prompt.ts's
+            own emit order (repo-map -> specs -> callers). The prompt is
+            deliberately left unreordered (D7); only this row moved. */}
+        {trace.prompt_assembly.specs != null && (
+          <PromptBlock
+            label={t("trace.prompt.projectContext")}
+            text={trace.prompt_assembly.specs}
+            color={PROMPT_COLORS.specs}
+          />
+        )}
         {trace.prompt_assembly.repo_map != null && (
           <PromptBlock label={t("trace.prompt.repoMap")} text={trace.prompt_assembly.repo_map} color={PROMPT_COLORS.repoMap} />
-        )}
-        {trace.prompt_assembly.specs != null && (
-          <PromptBlock label={t("trace.prompt.specs")} text={trace.prompt_assembly.specs} color={PROMPT_COLORS.specs} />
         )}
         {trace.prompt_assembly.callers != null && (
           <PromptBlock label={t("trace.prompt.callers")} text={trace.prompt_assembly.callers} color={PROMPT_COLORS.callers} />

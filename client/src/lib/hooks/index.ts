@@ -15,6 +15,7 @@ export {
   useContextFiles,
   useReindexContext,
 } from "./core";
+export { useProjectContext, useProjectContextUsage, useProjectContextDoc } from "./project-context";
 export {
   useAgents,
   useAgent,

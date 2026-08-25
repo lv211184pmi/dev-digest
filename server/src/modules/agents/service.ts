@@ -5,6 +5,7 @@ import type {
   AgentVersion,
   CiFailOn,
   ModelInfo,
+  ProjectContextAttachment,
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
@@ -169,6 +170,35 @@ export class AgentsService {
     const resolvedOrder = order ?? existing.length;
     await this.repo.linkSkill(agentId, skillId, resolvedOrder);
     return this.skillLinks(agentId);
+  }
+
+  // ---- Project Context attachments (agent_context_docs) -------------------
+
+  /** An agent's attached documents for one repo, in injection order. */
+  async contextDocs(
+    workspaceId: string,
+    agentId: string,
+    repoId: string,
+  ): Promise<ProjectContextAttachment[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    return this.repo.contextDocs(agentId, repoId);
+  }
+
+  /**
+   * Replace the agent's attached documents for one repo with `paths`, in
+   * that order. This is the whole operation (D22): no version is cut and no
+   * `agent_versions` row is written (see `AgentsRepository.setContextDocs`).
+   */
+  async setContextDocs(
+    workspaceId: string,
+    agentId: string,
+    repoId: string,
+    paths: string[],
+  ): Promise<ProjectContextAttachment[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    return this.repo.setContextDocs(workspaceId, agentId, repoId, paths);
   }
 
   /**

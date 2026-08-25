@@ -1,7 +1,8 @@
-import { pgTable, uuid, text, integer, boolean, jsonb, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, jsonb, primaryKey, index } from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces, users } from './core';
 import { skills } from './skills';
+import { repos } from './repos';
 
 // ============================================================ Agents & skills
 
@@ -60,4 +61,32 @@ export const agentSkills = pgTable(
     order: integer('order').notNull().default(0),
   },
   (t) => ({ pk: primaryKey({ columns: [t.agentId, t.skillId] }) }),
+);
+
+/**
+ * Project Context — repo-scoped `.md` documents an agent attaches so their
+ * text is injected into the prompt. Modelled exactly on `agentSkills` above:
+ * composite PK, an `order` column for injection order, cascade on both FKs.
+ * Scoped by `repoId` in addition to `agentId` because agents are
+ * workspace-scoped while documents live in one repo's clone — an agent can
+ * attach documents from more than one repo.
+ */
+export const agentContextDocs = pgTable(
+  'agent_context_docs',
+  {
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+    repoId: uuid('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    order: integer('order').notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.agentId, t.repoId, t.path] }),
+    // AC 6's usage-count query filters by (repo, path) across all agents —
+    // without this index that query is a sequential scan of the table.
+    repoPathIdx: index('agent_context_docs_repo_path_idx').on(t.repoId, t.path),
+  }),
 );

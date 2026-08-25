@@ -27,6 +27,9 @@ import { AgentsRepository } from '../modules/agents/repository.js';
 import { SkillsRepository } from '../modules/skills/repository.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import { ConventionsRepository } from '../modules/conventions/infrastructure/persistence/conventions.repository.js';
+import { RepoRepository } from '../modules/repos/repository.js';
+import { ProjectContextService } from '../modules/project-context/application-services/project-context-service.js';
+import { CloneFileSource } from '../modules/project-context/infrastructure/external/clone-file-source.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
@@ -80,6 +83,7 @@ export class Container {
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
   private _priceBook?: PriceBook;
+  private _projectContext?: ProjectContextService;
 
   constructor(config: AppConfig, db: Db, private overrides: ContainerOverrides = {}) {
     this.config = config;
@@ -110,6 +114,21 @@ export class Container {
 
   get conventionsRepo(): ConventionsRepository {
     return (this._conventionsRepo ??= new ConventionsRepository(this.db));
+  }
+
+  /**
+   * Composed once, at the composition root — `reposRepo`/`fileSource`/
+   * `countTokens` only. `resolveForRun`'s `agentContextDocs`/
+   * `skillContextDocsForAgent` are per-run concerns (which agent, whether
+   * `skipSkills` applies) and are passed by the caller on each call, not
+   * baked in here (`run-executor.ts`'s `resolveProjectContext`).
+   */
+  get projectContext(): ProjectContextService {
+    return (this._projectContext ??= new ProjectContextService({
+      reposRepo: new RepoRepository(this.db),
+      fileSource: new CloneFileSource(this.git),
+      countTokens: (t) => this.tokenizer.count(t),
+    }));
   }
 
   get codeIndex(): CodeIndex {

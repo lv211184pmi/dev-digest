@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ProjectContextInjected } from './project-context.js';
 
 /**
  * Run trace. The ENTIRE trace of one run is persisted as a SINGLE
@@ -90,7 +91,17 @@ export const RunTrace = z.object({
   tool_calls: z.array(ToolCall),
   raw_output: z.string(),
   memory_pulled: z.array(MemoryPulled),
+  // Denormalised view for quick display: only the `included`/`truncated`
+  // paths from `project_context`, as plain strings. Kept `z.array(z.string())`
+  // — widening the element type here is breaking with no `.default()` escape
+  // hatch (INSIGHTS.md 2026-08-23 corollary); the richer shape lives on the
+  // new field below instead.
   specs_read: z.array(z.string()),
+  // Additive field: every resolved project-context document for the run,
+  // including skipped/truncated ones (unlike `specs_read`). `.default([])` is
+  // mandatory so the pre-existing RunTrace fixture (contracts.test.ts) keeps
+  // parsing with no edit to it — see INSIGHTS.md 2026-08-10.
+  project_context: z.array(ProjectContextInjected).default([]),
   log: z.array(RunLogLine),
 });
 export type RunTrace = z.infer<typeof RunTrace>;

@@ -20,9 +20,12 @@ export interface NavGroup {
 
 export const NAV: NavGroup[] = [
   {
+    // Repo-scoped views — both hrefs carry :repoId. Project Context is the
+    // read-only browser over the clone's own specs/docs/insights .md files.
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
+      { key: "context", label: "Project Context", icon: "Folder", href: "/repos/:repoId/context", gKey: "c" },
     ],
   },
   {
@@ -73,6 +76,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "⌘K", label: "Open command palette", group: "Global" },
   { keys: "?", label: "Show keyboard shortcuts", group: "Global" },
   { keys: "g p", label: "Go to Pull Requests", group: "Navigation" },
+  { keys: "g c", label: "Go to Project Context", group: "Navigation" },
   { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },

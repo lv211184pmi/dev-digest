@@ -105,6 +105,38 @@ targetFindingId` boolean, and have the effect do `setExpanded(!!shouldExpand)`
 
 ## Codebase Patterns
 
+- **2026-08-25** — The vendored `Checkbox` (`src/vendor/ui/kit/Checkbox.tsx`)
+  derives its accessible name from its native `<label>`'s rendered text
+  content, in DOM order — it exposes no separate `aria-label`/`name` prop.
+  Splitting a row's *visible* label (filename-first, directory-second, per
+  R6) from its *accessible* name (the full repo-relative path, per R22)
+  needs a visually-hidden span carrying the full path placed first in the
+  label, with the sighted filename/dir spans marked `aria-hidden` so they
+  don't concatenate into the computed name. Get the ordering wrong (hidden
+  span not first, or missing `aria-hidden` on the sighted siblings) and the
+  accessible name silently becomes the visible DOM order instead of the
+  full path — no type error, no visible symptom, only a screen-reader/
+  testing-library query mismatch.
+  `client/src/components/context-tab/ContextTab.tsx:154-166`
+- **2026-08-24** — A new App Router page is unreachable from the UI until it
+  gets an entry in `NAV` (`src/vendor/ui/nav.ts`) — the single registry behind
+  three consumers: the sidebar (`vendor/ui/shell/Sidebar.tsx:45`), the ⌘K
+  palette (`components/app-shell/hooks/useShellCommands.ts:21`) and the
+  `g`-then-key shortcuts (`components/app-shell/hooks/useGlobalShortcuts.ts:45`).
+  The Project Context page shipped complete but invisible: the route, `GET
+  /repos/:id/project-context`, an `activeKeyFor()` branch already returning
+  `"context"` (`components/app-shell/helpers.ts:30`) and `nav.context` /
+  `nav.onboarding-tour` keys already in `messages/en/shell.json` were all in
+  place — only the `NAV` item was missing, so nothing anywhere linked to
+  `/repos/:repoId/context`. When adding a route, check all five. Note the
+  palette resolves its label via ``t(`nav.${it.key}`)`` while `NavItem` renders
+  the hardcoded `item.label` (`vendor/ui/shell/NavItem.tsx:38`) — set both, and
+  keep them identical. `nav.ts` is the standing exception to "`src/vendor/ui`
+  is off-limits" (see the 2026-08-01 entry below): it is our own route
+  registry, not vendored third-party code, and commit `6ed1c96` already edited
+  it to add the Skills item.
+  `client/src/vendor/ui/nav.ts:21`
+
 - **2026-08-16** — Never render an unbounded list of repo-relative paths as one
   `array.join(", ")` string inside a wrapping block, AND that alone does not
   fix path overflow inside a flex/grid layout — both were needed for

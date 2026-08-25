@@ -92,6 +92,9 @@ Flags for `dev.sh`: `--no-seed` · `--no-client` · `--db-only` · `--help`.
 - Read `client/README.md` when adding a page or a data hook.
 - Read `reviewer-core/README.md` when touching prompt assembly, structured
   output, or the grounding gate.
+- Read `docs/project-context.md` when touching repo-scoped `.md` document
+  discovery, an agent's or skill's attached-document set, or the
+  `## Project context` prompt slot.
 - Read `e2e/README.md` before writing or debugging a browser flow.
 - Read `INSIGHTS.md` at repo root for decisions that span more than one package.
 - Use the `engineering-insights` skill to read or record an insight — it maps a

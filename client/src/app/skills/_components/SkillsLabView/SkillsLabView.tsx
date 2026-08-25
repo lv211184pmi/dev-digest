@@ -10,7 +10,7 @@ import { SkillsListPane } from "./_components/SkillsListPane";
 import { SkillDetailPane } from "./_components/SkillDetailPane";
 import { s } from "./styles";
 
-const VALID_TABS = ["config", "preview", "evals", "stats", "versions"];
+const VALID_TABS = ["config", "preview", "context", "evals", "stats", "versions"];
 
 /**
  * /skills/:id — master-detail Skills Lab. The list (left) is always visible;

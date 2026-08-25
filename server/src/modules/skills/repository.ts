@@ -1,7 +1,7 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { Db, Tx } from '../../db/client.js';
 import * as t from '../../db/schema.js';
-import type { SkillSource, SkillType } from '@devdigest/shared';
+import type { ProjectContextAttachment, SkillSource, SkillType } from '@devdigest/shared';
 import { INITIAL_SKILL_VERSION } from './constants.js';
 import { isSkillConfigChange } from './helpers.js';
 
@@ -111,7 +111,9 @@ export class SkillsRepository {
       .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.id, id)))
       .returning();
 
-    if (configChanged && row) await this.snapshotVersion(row, nextVersion, patch.changeSummary ?? null);
+    if (configChanged && row) {
+      await this.snapshotVersion(row, nextVersion, patch.changeSummary ?? null);
+    }
     return row;
   }
 
@@ -149,9 +151,17 @@ export class SkillsRepository {
   }
 
   /**
-   * Restore an old version's body as a NEW current version — a non-destructive
-   * revert (history is never rewritten). Reuses `update`'s config-change +
-   * snapshot logic, so a restore that matches the current body is a no-op.
+   * Restore an old version's `body` as a NEW current version — a
+   * non-destructive revert (history is never rewritten). Body-only, by
+   * design (D22): a version snapshot never carried attachments, so a
+   * restore leaves the skill's current attachment set exactly as it was
+   * (AC 54) — there is nothing to revert there.
+   *
+   * The skill's `body`/`version` update and the version-snapshot insert stay
+   * inside ONE `db.transaction()` — a crash or connection drop between them
+   * used to be able to commit the body change while leaving
+   * `version`/`skill_versions` un-bumped, silently desyncing the snapshot
+   * history from the live row (2026-08-24 fix; kept here on purpose).
    */
   async restoreVersion(
     workspaceId: string,
@@ -160,10 +170,27 @@ export class SkillsRepository {
   ): Promise<SkillRow | undefined> {
     const target = await this.getVersion(skillId, version);
     if (!target) return undefined;
-    return this.update(workspaceId, skillId, {
-      body: target.body,
-      changeSummary: `Restored from v${version}`,
+    const current = await this.getById(workspaceId, skillId);
+    if (!current) return undefined;
+
+    const versionChanges = target.body !== current.body;
+    const nextVersion = versionChanges ? current.version + 1 : current.version;
+
+    let result: SkillRow | undefined;
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(t.skills)
+        .set({ body: target.body, ...(versionChanges ? { version: nextVersion } : {}) })
+        .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.id, skillId)))
+        .returning();
+
+      result = row;
+
+      if (versionChanges && row) {
+        await this.snapshotVersion(row, nextVersion, `Restored from v${version}`, tx);
+      }
     });
+    return result;
   }
 
   // ---- reverse of agent_skills (Stats tab: "used by N agents") -------------
@@ -176,4 +203,93 @@ export class SkillsRepository {
       .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
       .where(eq(t.agentSkills.skillId, skillId));
   }
+
+  // ---- skill_context_docs (Project Context attachments) --------------------
+
+  /** A skill's attached documents for ONE repo, in injection order. */
+  async contextDocs(skillId: string, repoId: string): Promise<ProjectContextAttachment[]> {
+    const rows = await this.db
+      .select({ path: t.skillContextDocs.path, order: t.skillContextDocs.order })
+      .from(t.skillContextDocs)
+      .where(and(eq(t.skillContextDocs.skillId, skillId), eq(t.skillContextDocs.repoId, repoId)))
+      .orderBy(asc(t.skillContextDocs.order));
+    return rows;
+  }
+
+  /**
+   * Replace the skill's attached documents for ONE repo with `paths`, in that
+   * order. Other repos' attachments are untouched. This is the whole
+   * operation (D22): attachment changes are mutable metadata, persisted per
+   * discrete user action, independent of the skill's version — no version
+   * bump, no `skill_versions` row, even when `paths = []` (AC 53) — mirrors
+   * `AgentsRepository.setContextDocs`.
+   *
+   * The delete+insert is still two writes in one logical save, so it stays
+   * inside one `db.transaction()`.
+   */
+  async setContextDocs(
+    workspaceId: string,
+    skillId: string,
+    repoId: string,
+    paths: string[],
+  ): Promise<ProjectContextAttachment[]> {
+    const existing = await this.getById(workspaceId, skillId);
+    if (!existing) return [];
+
+    const deduped = dedupePreserveOrder(paths);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(t.skillContextDocs)
+        .where(and(eq(t.skillContextDocs.skillId, skillId), eq(t.skillContextDocs.repoId, repoId)));
+      if (deduped.length > 0) {
+        await tx
+          .insert(t.skillContextDocs)
+          .values(deduped.map((path, i) => ({ skillId, repoId, path, order: i })));
+      }
+    });
+
+    return this.contextDocs(skillId, repoId);
+  }
+
+  /**
+   * For every ENABLED skill linked to `agentId`, its attachment rows —
+   * `{skillId, skillName, repoId, path, order}` — ordered by
+   * `(agentSkills.order, skillContextDocs.order)`. This is the read the
+   * resolver needs to inherit a skill's documents after the agent's own
+   * (R9). Deliberately NOT filtered by `repoId`: the resolver must be able
+   * to see and record a cross-repo row as `skipped_other_repo` (R19) —
+   * filtering here would make that status unreachable.
+   */
+  async contextDocsForAgent(
+    agentId: string,
+  ): Promise<Array<{ skillId: string; skillName: string; repoId: string; path: string; order: number }>> {
+    const rows = await this.db
+      .select({
+        skillId: t.skills.id,
+        skillName: t.skills.name,
+        repoId: t.skillContextDocs.repoId,
+        path: t.skillContextDocs.path,
+        order: t.skillContextDocs.order,
+      })
+      .from(t.agentSkills)
+      .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
+      .innerJoin(t.skillContextDocs, eq(t.skillContextDocs.skillId, t.skills.id))
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.skills.enabled, true)))
+      .orderBy(asc(t.agentSkills.order), asc(t.skillContextDocs.order));
+    return rows;
+  }
+}
+
+/** Dedupe `paths` preserving first occurrence — a client sending a duplicate
+ *  path must not violate the (skillId, repoId, path) primary key. */
+function dedupePreserveOrder(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
 }

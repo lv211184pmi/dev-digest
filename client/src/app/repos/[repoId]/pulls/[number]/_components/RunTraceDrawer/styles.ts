@@ -98,6 +98,39 @@ export const s = {
   specsNone: { color: "var(--text-muted)" } satisfies CSSProperties,
   spec: { fontSize: 12, color: "var(--text-secondary)" } satisfies CSSProperties,
   statsRow: { display: "flex", gap: 10 } satisfies CSSProperties,
+
+  // ---- ProjectContextRow (R21/R25) ----
+  // R38 (client/INSIGHTS.md:108): every flex ancestor between a rendered
+  // repo-relative path and the drawer edge gets minWidth: 0.
+  projectContextList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    minWidth: 0,
+  } satisfies CSSProperties,
+  projectContextRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    minWidth: 0,
+  } satisfies CSSProperties,
+  projectContextPath: {
+    fontSize: 12,
+    color: "var(--text-secondary)",
+    overflowWrap: "anywhere",
+    minWidth: 0,
+  } satisfies CSSProperties,
+  projectContextTokens: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  projectContextInherited: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
   rawPre: {
     margin: 0,
     padding: "12px 14px",

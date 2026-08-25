@@ -5,10 +5,10 @@ import { useTranslations } from "next-intl";
 import { Badge, EmptyState, ErrorState, Icon, Skeleton, Tabs } from "@devdigest/ui";
 import { useSkill } from "@/lib/hooks/skills";
 import { SKILL_TYPE_COLOR } from "@/lib/skill-colors";
-import { ConfigTab, PreviewTab, StatsTab, VersionsTab } from "./_components/tabs";
+import { ConfigTab, PreviewTab, ContextTab, StatsTab, VersionsTab } from "./_components/tabs";
 import { s } from "./styles";
 
-const TABS = ["config", "preview", "evals", "stats", "versions"] as const;
+const TABS = ["config", "preview", "context", "evals", "stats", "versions"] as const;
 
 /** Right pane of the Skills Lab — header (name, type/version badges, "Run on
  *  evals") + the 5 detail tabs for the selected skill. */
@@ -50,6 +50,7 @@ export function SkillDetailPane({
   let content: React.ReactNode;
   if (activeTab === "config") content = <ConfigTab skill={skill} />;
   else if (activeTab === "preview") content = <PreviewTab skill={skill} />;
+  else if (activeTab === "context") content = <ContextTab skillId={skill.id} />;
   else if (activeTab === "stats") content = <StatsTab skill={skill} />;
   else if (activeTab === "versions") content = <VersionsTab skill={skill} />;
   else content = <EmptyState icon="FlaskConical" title={t("detail.tabs.evals")} body={t("evals.body")} />;

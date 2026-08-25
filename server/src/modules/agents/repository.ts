@@ -1,7 +1,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
-import type { Db } from '../../db/client.js';
+import type { Db, Tx } from '../../db/client.js';
 import * as t from '../../db/schema.js';
-import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
+import type { CiFailOn, Provider, ProjectContextAttachment, ReviewStrategy } from '@devdigest/shared';
 import { DEFAULT_AGENT_DESCRIPTION, INITIAL_AGENT_VERSION } from './constants.js';
 import { isConfigChange } from './helpers.js';
 
@@ -145,8 +145,16 @@ export class AgentsRepository {
     return row;
   }
 
+  /**
+   * Snapshots the agent's config fields plus its linked skills into
+   * `agent_versions`, keyed by (agentId, version). Project Context
+   * attachments are deliberately **not** part of this snapshot (D22):
+   * attachment changes are mutable metadata persisted independently of the
+   * agent's version history, so they never appear here and never trigger a
+   * version bump. Only `create` and `update` call this.
+   */
   private async snapshotVersion(row: AgentRow, version: number): Promise<void> {
-    const skills = await this.skillIdsForAgent(row.id);
+    const skills = await this.skillIdsForAgent(row.id, this.db);
     await this.db
       .insert(t.agentVersions)
       .values({
@@ -188,9 +196,11 @@ export class AgentsRepository {
 
   // ---- agent_skills link table (A2 owns the agent side) -------------------
 
-  /** Skills linked to an agent, in `order` ascending. */
-  async linkedSkills(agentId: string): Promise<LinkedSkillRow[]> {
-    const rows = await this.db
+  /** Skills linked to an agent, in `order` ascending. `conn` lets a caller
+   *  inside a transaction (e.g. `snapshotVersion`) read its own uncommitted
+   *  writes via the same connection; defaults to the plain connection. */
+  async linkedSkills(agentId: string, conn: Db | Tx = this.db): Promise<LinkedSkillRow[]> {
+    const rows = await conn
       .select({ skill: t.skills, order: t.agentSkills.order })
       .from(t.agentSkills)
       .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
@@ -199,8 +209,8 @@ export class AgentsRepository {
     return rows.map((r) => ({ skill: r.skill, order: r.order }));
   }
 
-  async skillIdsForAgent(agentId: string): Promise<string[]> {
-    const links = await this.linkedSkills(agentId);
+  async skillIdsForAgent(agentId: string, conn: Db | Tx = this.db): Promise<string[]> {
+    const links = await this.linkedSkills(agentId, conn);
     return links.map((l) => l.skill.id);
   }
 
@@ -233,4 +243,67 @@ export class AgentsRepository {
       .insert(t.agentSkills)
       .values(skillIds.map((skillId, i) => ({ agentId, skillId, order: i })));
   }
+
+  // ---- agent_context_docs (Project Context attachments) -------------------
+
+  /** An agent's attached documents for ONE repo, in injection order. */
+  async contextDocs(agentId: string, repoId: string): Promise<ProjectContextAttachment[]> {
+    const rows = await this.db
+      .select({ path: t.agentContextDocs.path, order: t.agentContextDocs.order })
+      .from(t.agentContextDocs)
+      .where(and(eq(t.agentContextDocs.agentId, agentId), eq(t.agentContextDocs.repoId, repoId)))
+      .orderBy(asc(t.agentContextDocs.order));
+    return rows;
+  }
+
+  /**
+   * Replace the agent's attached documents for ONE repo with `paths`, in that
+   * order. Other repos' attachments are untouched. This is the whole
+   * operation (D22): attachment changes are mutable metadata, persisted per
+   * discrete user action, independent of the agent's version — no version
+   * bump, no `agent_versions` row, even when `paths = []` (AC 53). Returns
+   * `[]` when the agent doesn't exist in this workspace (matching
+   * `setSkills`'s silent-noop-on-missing-agent shape; the service layer is
+   * the one that 404s).
+   *
+   * The delete+insert is still two writes in one logical save, so it stays
+   * inside one `db.transaction()`.
+   */
+  async setContextDocs(
+    workspaceId: string,
+    agentId: string,
+    repoId: string,
+    paths: string[],
+  ): Promise<ProjectContextAttachment[]> {
+    const existing = await this.getById(workspaceId, agentId);
+    if (!existing) return [];
+
+    const deduped = dedupePreserveOrder(paths);
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(t.agentContextDocs)
+        .where(and(eq(t.agentContextDocs.agentId, agentId), eq(t.agentContextDocs.repoId, repoId)));
+      if (deduped.length > 0) {
+        await tx
+          .insert(t.agentContextDocs)
+          .values(deduped.map((path, i) => ({ agentId, repoId, path, order: i })));
+      }
+    });
+
+    return this.contextDocs(agentId, repoId);
+  }
+}
+
+/** Dedupe `paths` preserving first occurrence — a client sending a duplicate
+ *  path must not violate the (agentId, repoId, path) primary key. */
+function dedupePreserveOrder(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
 }
